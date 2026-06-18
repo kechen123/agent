@@ -1,0 +1,22 @@
+# 依赖目录
+node_modules/
+web/node_modules/
+
+# 环境变量和密钥
+.env
+.env.*
+!.env.example
+
+# 构建产物
+dist/
+build/
+web/dist/
+web/build/
+
+# 日志和临时文件
+*.log
+.DS_Store
+Thumbs.db
+
+# Claude Code 本地会话数据
+.claude/
