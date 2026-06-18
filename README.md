@@ -153,16 +153,13 @@ web/src/
 
 ## assistant-ui 状态
 
-当前前端保留 `@assistant-ui/react` 依赖，但实际 UI 临时使用自研 Chat UI。
+当前前端保留 `@assistant-ui/react` 依赖，但实际界面使用自研 Chat UI。界面已覆盖：
 
-原因是当前安装的 assistant-ui `0.7.x` 中，`Thread` 的自定义消息 API 与原接入方式不兼容。为了优先保证项目可运行，已先跑通：
+- 用户消息和 AI 流式回复
+- 执行过程时间线
+- 执行计划卡片
+- 工具调用折叠卡片
+- HITL 确认 / 修改 / 取消操作
+- SSE 接收与消息元数据折叠
 
-- 用户消息显示
-- AI 流式回复
-- AgentTimeline
-- PlanCard
-- ToolCallCard
-- HitlConfirmCard
-- SSE 接收与折叠
-
-代码中已标注 TODO：后续替换为 assistant-ui 标准 Runtime。
+原因是当前安装的 assistant-ui `0.7.x` 中，`Thread` 的自定义消息 API 与原接入方式不兼容。后续替换回 assistant-ui 标准 Runtime 时，应先读取实际安装版本的类型定义再改代码。

@@ -9,7 +9,7 @@
 > 重要：本项目**不是 monorepo**，**不使用 pnpm workspace**。根目录是后端项目，`web/` 是前端项目；两者独立安装依赖、独立启动。
 
 - **后端**（`src/`）：Node.js + TypeScript + LangGraph + Hono。提供 `POST /chat` 和 `POST /chat/resume`，以 SSE 流输出标准化 `AgentStreamEvent`。
-- **前端**（`web/`）：React + Vite + TailwindCSS。当前保留 `@assistant-ui/react` 依赖，但为了先跑通功能，界面临时使用自研 Chat UI；代码中已标注 TODO：后续替换为 assistant-ui 标准 Runtime。
+- **前端**（`web/`）：React + Vite + TailwindCSS。前端当前使用自研 Chat UI 渲染消息、执行过程、计划、工具调用和 HITL 操作；`@assistant-ui/react` 依赖保留，后续替换回 assistant-ui 标准 Runtime 时，应先读取实际安装版本的类型定义再改代码。
 
 ## 安装与启动
 
@@ -123,4 +123,4 @@ web/src/
 
 ## 当前 assistant-ui 状态
 
-`@assistant-ui/react` 仍保留在 `web/package.json` 中，但当前安装版本 `0.7.x` 的 `Thread` 自定义消息 API 与原代码不兼容。为满足“先跑通，再优化”，前端暂时使用自研 Chat UI 渲染消息和 Agent 卡片。后续替换回 assistant-ui 标准 Runtime 时，应先读取实际安装版本的类型定义再改代码。
+`@assistant-ui/react` 仍保留在 `web/package.json` 中，但当前安装版本 `0.7.x` 的 `Thread` 自定义消息 API 与原代码不兼容。前端当前使用自研 Chat UI 渲染消息、执行过程、计划、工具调用和 HITL 操作；后续替换回 assistant-ui 标准 Runtime 时，应先读取实际安装版本的类型定义再改代码。
