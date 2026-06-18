@@ -20,3 +20,4 @@ Thumbs.db
 
 # Claude Code 本地会话数据
 .claude/
+.superpowers/
