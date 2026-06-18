@@ -20,17 +20,18 @@ export function AssistantApp() {
 
   return (
     <AgentActionsContext.Provider value={actions}>
-      <div className="flex h-full w-full">
+      <div className="flex h-screen w-full overflow-hidden bg-[#f7f7f8] text-neutral-950">
         <Sidebar
           threads={threads}
           currentThreadId={currentThreadId}
           onSelect={setCurrentThreadId}
           onNew={newThread}
         />
-        <main className="h-full flex-1">
+        <main className="min-w-0 flex-1">
           <ChatView
             messages={currentThread.messages}
             isRunning={isRunning}
+            threadId={currentThreadId}
             onSend={sendMessage}
             onCancel={cancel}
           />
