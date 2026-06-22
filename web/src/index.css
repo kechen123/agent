@@ -8,8 +8,13 @@ body,
   height: 100%;
 }
 
+html {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
+  overflow: hidden;
   background: #f7f7f8;
   color: #111827;
   font-family:
@@ -22,8 +27,17 @@ body {
   box-sizing: border-box;
 }
 
+button,
+textarea,
+input {
+  font: inherit;
+}
+
 .markdown-body {
+  min-width: 0;
   line-height: 1.75;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-body > :first-child {
@@ -73,15 +87,15 @@ body {
 
 .markdown-body blockquote {
   margin: 1rem 0;
-  border-left: 3px solid #c7d2fe;
+  border-left: 3px solid #d4d4d8;
   border-radius: 0 0.75rem 0.75rem 0;
-  background: rgba(238, 242, 255, 0.55);
+  background: rgba(244, 244, 245, 0.75);
   padding: 0.5rem 1rem;
   color: #525252;
 }
 
 .markdown-body a {
-  color: #4f46e5;
+  color: #2563eb;
   text-decoration: none;
 }
 
@@ -103,26 +117,30 @@ body {
 }
 
 .markdown-body pre {
+  max-width: 100%;
   margin: 1rem 0;
   overflow-x: auto;
-  border-radius: 1rem;
+  border-radius: 0.875rem;
   background: #18181b;
   padding: 1rem;
   color: #f4f4f5;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .markdown-body pre code {
   background: transparent;
   padding: 0;
   color: inherit;
+  white-space: pre;
 }
 
 .markdown-body table {
-  width: 100%;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   margin: 1rem 0;
-  overflow: hidden;
-  border-radius: 0.75rem;
   font-size: 0.875rem;
 }
 
@@ -130,6 +148,7 @@ body {
 .markdown-body td {
   border: 1px solid #e5e7eb;
   padding: 0.5rem 0.75rem;
+  white-space: nowrap;
 }
 
 .markdown-body th {
