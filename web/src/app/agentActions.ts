@@ -3,6 +3,7 @@ import type { HitlAction } from "../types/agent-ui";
 
 export interface AgentActions {
   resume: (action: HitlAction, message?: string) => void;
+  isRunning: boolean;
 }
 
 export const AgentActionsContext = createContext<AgentActions | null>(null);

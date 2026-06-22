@@ -1,114 +1,134 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { UiMessage } from "../../hooks/useAgentRuntime";
 import { AssistantMessage } from "./AssistantMessage";
+import { Composer, type ComposerHandle } from "./Composer";
+import { EmptyState } from "./EmptyState";
 
 interface ChatViewProps {
+  title: string;
   messages: UiMessage[];
   isRunning: boolean;
-  threadId: string;
+  onOpenMenu: () => void;
+  onNewThread: () => void;
   onSend: (message: string) => void;
   onCancel: () => void;
 }
 
-export function ChatView({ messages, isRunning, threadId, onSend, onCancel }: ChatViewProps) {
+const BOTTOM_THRESHOLD = 120;
+
+export function ChatView({
+  title,
+  messages,
+  isRunning,
+  onOpenMenu,
+  onNewThread,
+  onSend,
+  onCancel,
+}: ChatViewProps) {
   const [draft, setDraft] = useState("");
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const shortThreadId = threadId.length > 8 ? threadId.slice(-8) : threadId;
+  const composerRef = useRef<ComposerHandle | null>(null);
+  const followOutputRef = useRef(true);
+
+  const updateNearBottom = () => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+    const near = distance <= BOTTOM_THRESHOLD;
+    followOutputRef.current = near;
+    setIsNearBottom(near);
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+    followOutputRef.current = true;
+    setIsNearBottom(true);
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (followOutputRef.current) {
+      scrollToBottom("smooth");
+    }
   }, [messages]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSend = () => {
     const text = draft.trim();
     if (!text || isRunning) return;
+    followOutputRef.current = true;
     onSend(text);
     setDraft("");
+    requestAnimationFrame(() => scrollToBottom("smooth"));
+  };
+
+  const handlePickSuggestion = (text: string) => {
+    setDraft(text);
+    requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   return (
-    <section className="flex h-screen min-w-0 flex-col bg-[#f7f7f8]">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200/80 bg-white/80 px-6 backdrop-blur">
-        <div>
-          <h1 className="text-base font-semibold text-neutral-950">Agent Runtime</h1>
-          <p className="mt-0.5 text-xs text-neutral-500">LangGraph · Tool Calling · HITL</p>
+    <section className="flex h-[100dvh] min-w-0 flex-col overflow-hidden bg-[#f7f7f8]">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200/80 bg-[#f7f7f8]/95 px-3 backdrop-blur sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 md:hidden"
+            aria-label="打开会话列表"
+          >
+            ☰
+          </button>
+          <h1 className="truncate text-sm font-semibold text-neutral-950 sm:text-base">{title || "新会话"}</h1>
         </div>
-        <div className="flex items-center gap-3 text-xs text-neutral-500">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700 ring-1 ring-emerald-100">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            在线
-          </span>
-          <span className="rounded-full bg-neutral-100 px-2.5 py-1 font-mono text-[11px] text-neutral-500">
-            thread · {shortThreadId}
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={onNewThread}
+          className="hidden h-9 rounded-full px-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 sm:inline-flex sm:items-center"
+        >
+          新建会话
+        </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-        <div className="mx-auto flex w-full max-w-[880px] flex-col gap-6 pb-40">
-          {messages.length === 0 && (
-            <div className="mx-auto mt-16 max-w-2xl rounded-[28px] border border-neutral-200 bg-white/85 p-10 text-center shadow-sm shadow-neutral-200/70">
-              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-3xl bg-gradient-to-br from-indigo-500 to-violet-500 text-lg font-semibold text-white shadow-sm shadow-indigo-200">
-                AR
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight text-neutral-950">开始一个新任务</h2>
-              <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-neutral-500">
-                输入你的目标，Agent Runtime 会展示路由、规划、工具调用和人工确认过程。
-              </p>
-            </div>
-          )}
-
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div key={message.id} className="flex w-full justify-end">
-                <div className="max-w-[72%] whitespace-pre-wrap rounded-[22px] rounded-br-md bg-neutral-950 px-4 py-3 text-sm leading-6 text-white shadow-sm shadow-neutral-300">
-                  {message.content}
+      <div ref={scrollRef} onScroll={updateNearBottom} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col gap-5 px-3 py-6 sm:px-6">
+          {messages.length === 0 ? (
+            <EmptyState onPickSuggestion={handlePickSuggestion} />
+          ) : (
+            messages.map((message) =>
+              message.role === "user" ? (
+                <div key={message.id} className="flex w-full justify-end">
+                  <div className="max-w-[min(78%,34rem)] whitespace-pre-wrap break-words rounded-3xl bg-neutral-200 px-4 py-2.5 text-sm leading-6 text-neutral-900 sm:max-w-[72%]">
+                    {message.content}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <AssistantMessage key={message.id} message={message} />
-            ),
+              ) : (
+                <AssistantMessage key={message.id} message={message} />
+              ),
+            )
           )}
           <div ref={bottomRef} />
         </div>
+
+        {!isNearBottom && messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            className="sticky bottom-3 left-1/2 z-10 mx-auto mb-3 flex -translate-x-0 items-center rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+          >
+            回到底部
+          </button>
+        )}
       </div>
 
-      <form onSubmit={handleSubmit} className="shrink-0 border-t border-transparent bg-gradient-to-t from-[#f7f7f8] via-[#f7f7f8] to-[#f7f7f8]/0 px-6 pb-5 pt-3">
-        <div className="mx-auto flex max-w-[880px] items-end gap-3 rounded-[24px] border border-neutral-200 bg-white p-2 shadow-lg shadow-neutral-200/70 transition focus-within:border-indigo-300 focus-within:shadow-indigo-100/80">
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            placeholder="输入消息，按 Enter 发送，Shift + Enter 换行"
-            className="max-h-40 min-h-12 flex-1 resize-none border-0 bg-transparent px-3 py-3 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed disabled:text-neutral-400"
-            disabled={isRunning}
-            rows={1}
-          />
-          {isRunning ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="mb-1 h-10 rounded-2xl border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
-            >
-              停止
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!draft.trim()}
-              className="mb-1 h-10 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 text-sm font-medium text-white shadow-sm shadow-indigo-200 transition hover:-translate-y-0.5 hover:from-indigo-500 hover:to-violet-500 focus:outline-none focus:ring-2 focus:ring-indigo-400/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              发送
-            </button>
-          )}
-        </div>
-      </form>
+      <Composer
+        ref={composerRef}
+        value={draft}
+        isRunning={isRunning}
+        onChange={setDraft}
+        onSend={handleSend}
+        onCancel={onCancel}
+      />
     </section>
   );
 }
