@@ -22,18 +22,25 @@ export function getTools(): StructuredTool[] {
   return all.filter((t) => enabled.includes(t.name));
 }
 
-/** 按名称返回工具，用于获取某个 skill 允许使用的工具集。 */
+/**
+ * 按名称返回工具，用于落实 Skill 的工具白名单。
+ *
+ * 注意 `undefined` 和空数组的语义不同：
+ * - undefined：Skill 没有声明白名单，返回全部全局启用工具；
+ * - []：Skill 明确禁止工具，返回空数组。
+ */
 export function getToolsByName(names?: string[]): StructuredTool[] {
-  if (!names || names.length === 0) return getTools();
-  const all = Array.from(registry.values()).map((t) => t.tool);
-  return all.filter((t) => names.includes(t.name));
+  if (names === undefined) return getTools();
+  if (names.length === 0) return [];
+  const enabledTools = getTools();
+  return enabledTools.filter((tool) => names.includes(tool.name));
 }
 
 export function getRegisteredTools(): RegisteredTool[] {
   return Array.from(registry.values());
 }
 
-/** 构建绑定了启用工具的 ToolNode，供 runtime graph 使用。 */
-export function createToolNode(): ToolNode {
-  return new ToolNode(getTools());
+/** 构建 ToolNode。传入工具名时，会同时应用全局开关和 Skill 白名单。 */
+export function createToolNode(toolNames?: string[]): ToolNode {
+  return new ToolNode(getToolsByName(toolNames));
 }

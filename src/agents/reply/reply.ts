@@ -41,6 +41,8 @@ function buildTaskChain(skillPrompt: string) {
 计划：{plan}
 执行结果：{executionResults}
 工具结果：{toolResults}
+Reflection：{reflection}
+运行错误：{errors}
 用户决策：{decision}
 
 请只基于以上本轮信息生成最终回答。`,
@@ -58,8 +60,13 @@ function toolResultsOf(state: AgentRuntimeState): string {
   }
   return state.messages
     .slice(Math.max(0, latestHumanIndex + 1))
-    .filter((message) => message.getType() === "tool")
+    .filter((message) => {
+      if (message.getType() === "tool") return true;
+      const namedMessage = message as typeof message & { name?: string };
+      return message.getType() === "ai" && namedMessage.name === "toolAgent";
+    })
     .map((message) => messageText(message))
+    .filter(Boolean)
     .join("\n");
 }
 
@@ -76,11 +83,13 @@ export const ReplyAgent: AgentDefinition = {
             messages: getConversationMessages(state.messages),
           })
         : await buildTaskChain(skillPrompt).invoke({
-            request: messageText(getLatestHumanMessage(state.messages)),
+            request: state.request || messageText(getLatestHumanMessage(state.messages)),
             route: state.route,
             plan: state.plan ? JSON.stringify(state.plan, null, 2) : "无",
             executionResults: state.executionResults.join("\n") || "无",
             toolResults: toolResultsOf(state) || "无",
+            reflection: state.reflection ? JSON.stringify(state.reflection) : "无",
+            errors: state.errors.join("\n") || "无",
             decision: state.decision ? JSON.stringify(state.decision) : "无",
           });
 

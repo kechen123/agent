@@ -11,6 +11,7 @@ export const NODE_NAMES = {
   router: "routerAgent",
   planner: "plannerAgent",
   executor: "executorAgent",
+  reflection: "reflectionAgent",
   reply: "replyAgent",
   tool: "toolAgent",
 } as const;

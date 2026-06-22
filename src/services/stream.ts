@@ -1,6 +1,12 @@
 import { getSnapshot, isWaitingForConfirm, getInterruptPlan } from "../runtime/checkpoints";
 import { NODE_NAMES } from "../runtime/events";
-import type { AgentStreamEvent, Plan, PlanStep, Route } from "../types/agent";
+import type {
+  AgentStreamEvent,
+  Plan,
+  PlanStep,
+  ReflectionResult,
+  Route,
+} from "../types/agent";
 
 /** LangGraph streamEvents v2 事件的最小结构视图。 */
 interface RawStreamEvent {
@@ -15,6 +21,7 @@ const NODE_BY_NAME: Record<string, string> = {
   [NODE_NAMES.router]: "router",
   [NODE_NAMES.planner]: "planner",
   [NODE_NAMES.executor]: "executor",
+  [NODE_NAMES.reflection]: "reflection",
   [NODE_NAMES.reply]: "reply",
   [NODE_NAMES.tool]: "tool",
 };
@@ -35,13 +42,24 @@ function textOf(chunk: unknown): string {
   return typeof c?.content === "string" ? c.content : "";
 }
 
+/** 把不同来源的异常统一转换为可以安全发送给前端的文本。 */
+function errorMessageOf(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "message" in value) {
+    return String((value as { message?: unknown }).message ?? "未知错误");
+  }
+  return String(value ?? "未知错误");
+}
+
 /**
  * 流适配器：将原始 LangGraph streamEvents 流转换为前端消费的
  * 标准化 AgentStreamEvent 联合类型。
  *
  * 映射规则：
  *  - 节点 on_chain_start/on_chain_end → <node>:start / <node>:end
- *  - planner:end 携带生成的计划；executor:end 携带当前步骤
+ *  - planner:end 携带生成的计划；executor:end 携带当前步骤和执行结果
+ *  - reflection:end 携带验收结论，让前端可以观察执行/反思循环
  *  - on_tool_start / on_tool_end      → tool:start / tool:end
  *  - on_chat_model_stream（replyAgent）→ message:delta；模型结束 → message:end
  *  - router/planner/executor/tool 的模型流会被过滤（不面向用户）
@@ -75,7 +93,23 @@ export async function* adaptStream(
       if (kind === "on_chain_start" && node && e.name === e.metadata?.langgraph_node) {
         if (node === "router") yield { type: "router:start", agent: NODE_NAMES.router };
         else if (node === "planner") yield { type: "planner:start", agent: NODE_NAMES.planner };
-        else if (node === "executor") yield { type: "executor:start", agent: NODE_NAMES.executor };
+        else if (node === "executor") {
+          const input = (e.data as {
+            input?: Partial<{
+              plan: Plan;
+              currentStep: number;
+              retryCount: number;
+            }>;
+          } | undefined)?.input;
+          yield {
+            type: "executor:start",
+            agent: NODE_NAMES.executor,
+            step: input?.plan?.steps?.[input.currentStep ?? 0],
+            attempt: (input?.retryCount ?? 0) + 1,
+          };
+        } else if (node === "reflection") {
+          yield { type: "reflection:start", agent: NODE_NAMES.reflection };
+        }
         continue;
       }
 
@@ -83,7 +117,8 @@ export async function* adaptStream(
         const out = asOutput(e);
         if (node === "router") {
           const route = (out?.route as Route) ?? "chat";
-          yield { type: "router:end", route };
+          const skillName = typeof out?.skillName === "string" ? out.skillName : null;
+          yield { type: "router:end", route, skillName };
         } else if (node === "planner") {
           const plan = (out?.plan as Plan | undefined) ?? undefined;
           if (plan) {
@@ -91,11 +126,29 @@ export async function* adaptStream(
             yield { type: "planner:end", plan };
           }
         } else if (node === "executor") {
-          const newStep = typeof out?.currentStep === "number" ? (out.currentStep as number) : 0;
-          const stepIdx = newStep - 1;
+          const stepIdx =
+            typeof out?.lastExecutedStep === "number" ? out.lastExecutedStep : -1;
           const step: PlanStep | undefined =
             currentPlan && stepIdx >= 0 ? currentPlan.steps[stepIdx] : undefined;
-          if (step) yield { type: "executor:end", step, currentStep: newStep };
+          const results = Array.isArray(out?.executionResults)
+            ? (out.executionResults as string[])
+            : [];
+          const result = results.at(-1) ?? "";
+          const attempt =
+            typeof out?.retryCount === "number" ? (out.retryCount as number) + 1 : 1;
+          if (step) yield { type: "executor:end", step, result, attempt };
+        } else if (node === "reflection") {
+          const reflection = out?.reflection as ReflectionResult | undefined;
+          if (reflection) {
+            yield {
+              type: "reflection:end",
+              reflection,
+              currentStep:
+                typeof out?.currentStep === "number" ? (out.currentStep as number) : 0,
+              retryCount:
+                typeof out?.retryCount === "number" ? (out.retryCount as number) : 0,
+            };
+          }
         }
         continue;
       }
@@ -116,6 +169,15 @@ export async function* adaptStream(
           callId: e.run_id ?? e.name,
           toolName: e.name,
           output: (e.data as { output?: unknown } | undefined)?.output,
+        };
+        continue;
+      }
+      if (kind === "on_tool_error") {
+        yield {
+          type: "tool:error",
+          callId: e.run_id ?? e.name,
+          toolName: e.name,
+          error: errorMessageOf((e.data as { error?: unknown } | undefined)?.error),
         };
         continue;
       }
@@ -160,7 +222,11 @@ export async function* adaptStream(
     }
     yield { type: "stream:end", status: finalStatus };
   } catch (err) {
-    yield { type: "error", message: (err as Error).message ?? String(err) };
+    if (err instanceof Error && err.name === "AbortError") {
+      yield { type: "stream:end", status: "cancelled" };
+      return;
+    }
+    yield { type: "error", message: errorMessageOf(err) };
     yield { type: "stream:end", status: "error" };
   }
 }

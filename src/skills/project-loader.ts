@@ -9,6 +9,7 @@ const PROJECT_SKILLS_DIR = path.join(PROJECT_ROOT, "skills");
 const SKILL_FILE_NAME = "SKILL.md";
 const MAX_SKILL_FILE_BYTES = 256 * 1024;
 const SAFE_SKILL_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const SAFE_TOOL_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
 function isInside(parent: string, child: string): boolean {
   const relative = path.relative(parent, child);
@@ -19,6 +20,28 @@ function asNonEmptyString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * tools 是可选 frontmatter 字段。
+ *
+ * 未声明 tools 与声明 `tools: []` 的含义不同，因此这里保留 undefined。
+ */
+function parseToolNames(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error("frontmatter tools 必须是字符串数组");
+  }
+
+  const names = value.map((item) => {
+    const name = asNonEmptyString(item);
+    if (!name || !SAFE_TOOL_NAME.test(name)) {
+      throw new Error(`frontmatter tools 包含非法工具名：${String(item)}`);
+    }
+    return name;
+  });
+
+  return [...new Set(names)];
 }
 
 function parseSkillFile(filePath: string): Skill {
@@ -45,7 +68,12 @@ function parseSkillFile(filePath: string): Skill {
   const systemPrompt = parsed.content.trim();
   if (!systemPrompt) throw new Error("SKILL.md 正文为空");
 
-  return { name, description, systemPrompt };
+  return {
+    name,
+    description,
+    systemPrompt,
+    tools: parseToolNames(parsed.data.tools),
+  };
 }
 
 export function loadProjectSkillsFromDirectory(projectSkillsDir: string): void {

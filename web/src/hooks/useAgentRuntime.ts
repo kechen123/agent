@@ -89,6 +89,11 @@ export function useAgentRuntime() {
           events: [...message.metadata.events],
           toolCalls: message.metadata.toolCalls.map((call) => ({ ...call })),
           plan: message.metadata.plan,
+          route: message.metadata.route,
+          skillName: message.metadata.skillName,
+          currentStep: message.metadata.currentStep,
+          retryCount: message.metadata.retryCount,
+          reflection: message.metadata.reflection,
           waitingForConfirm: message.metadata.waitingForConfirm,
           streamStatus: message.metadata.streamStatus,
         };
@@ -106,6 +111,8 @@ export function useAgentRuntime() {
             break;
           case "router:end":
             markLast(meta.events, "router:start", "done");
+            meta.route = event.route;
+            meta.skillName = event.skillName;
             break;
           case "planner:start":
             meta.events.push({
@@ -132,7 +139,11 @@ export function useAgentRuntime() {
             meta.events.push({
               id: nextEventId(),
               type: event.type,
-              title: "执行计划",
+              title: event.step
+                ? `执行第 ${event.step.id} 步`
+                : "执行计划",
+              description:
+                event.attempt > 1 ? `第 ${event.attempt} 次尝试` : event.step?.task,
               status: "running",
             });
             break;
@@ -141,12 +152,43 @@ export function useAgentRuntime() {
             meta.events.push({
               id: nextEventId(),
               type: event.type,
-              title: `完成第 ${event.step.id} 步`,
-              description: event.step.task,
-              data: event.step,
+              title: `第 ${event.step.id} 步执行完成`,
+              description: event.result || event.step.task,
+              data: event,
               status: "done",
             });
             break;
+          case "reflection:start":
+            meta.events.push({
+              id: nextEventId(),
+              type: event.type,
+              title: "检查执行结果",
+              description: "Reflection Agent 正在判断是否通过、重试或重新规划",
+              status: "running",
+            });
+            break;
+          case "reflection:end": {
+            markLast(meta.events, "reflection:start", "done");
+            meta.reflection = event.reflection;
+            meta.currentStep = event.currentStep;
+            meta.retryCount = event.retryCount;
+            const reflectionLabel = {
+              pass: "检查通过",
+              retry: "需要重试",
+              replan: "需要重新规划",
+              fail: "无法继续执行",
+            }[event.reflection.status];
+            meta.events.push({
+              id: nextEventId(),
+              type: event.type,
+              title: reflectionLabel,
+              description: `${event.reflection.reason}；${event.reflection.feedback}`,
+              data: event.reflection,
+              status:
+                event.reflection.status === "fail" ? "error" : "done",
+            });
+            break;
+          }
           case "tool:start":
             meta.toolCalls.push({
               id: event.callId,
@@ -160,6 +202,21 @@ export function useAgentRuntime() {
             if (call) {
               call.output = event.output;
               call.status = "done";
+            }
+            break;
+          }
+          case "tool:error": {
+            const call = meta.toolCalls.find((item) => item.id === event.callId);
+            if (call) {
+              call.output = event.error;
+              call.status = "error";
+            } else {
+              meta.toolCalls.push({
+                id: event.callId,
+                toolName: event.toolName,
+                output: event.error,
+                status: "error",
+              });
             }
             break;
           }

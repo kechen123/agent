@@ -34,6 +34,8 @@ name: frontend-design
 description: |
   Create production-grade frontend interfaces
   with strong visual craft.
+tools:
+  - getWeather
 ---
 
 # Frontend Design
@@ -83,6 +85,10 @@ This project-level skill overrides the builtin frontend skill.
   assert(
     frontendDesignSkill?.systemPrompt.includes("Use the project frontend conventions."),
     "expected Markdown body to become systemPrompt",
+  );
+  assert(
+    frontendDesignSkill?.tools?.[0] === "getWeather",
+    "expected tools frontmatter to become the Skill tool whitelist",
   );
   assert(!broken, "expected broken skill not to be registered");
   assert(frontend?.source === "project", "expected project skill to override same-name builtin skill");

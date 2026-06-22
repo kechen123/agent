@@ -10,13 +10,13 @@ import { getConversationMessages } from "../../runtime/messages";
 import { skillPromptForState, withSkillPrompt } from "../../skills";
 
 export const PlanSchema = z.object({
-  goal: z.string(),
+  goal: z.string().trim().min(1),
   steps: z.array(
     z.object({
       id: z.number(),
-      task: z.string(),
+      task: z.string().trim().min(1),
     }),
-  ),
+  ).min(1).max(20),
 });
 
 const SYSTEM_PROMPT = `你是一名专业的任务规划专家（Planner Agent）。
@@ -48,6 +48,11 @@ const buildChain = (systemPrompt: string) => {
   const prompt = ChatPromptTemplate.fromMessages([
     ["system", systemPrompt],
     ["placeholder", "{messages}"],
+    [
+      "human",
+      `如果存在 Reflection 反馈，请修正原计划中的问题；如果没有则正常规划。
+Reflection 反馈：{reflectionFeedback}`,
+    ],
   ]);
   return prompt.pipe(plannerModel);
 };
@@ -66,7 +71,10 @@ export const PlannerAgent: AgentDefinition = {
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
     const chain = buildChain(withSkillPrompt(SYSTEM_PROMPT, skillPromptForState(state)));
-    const res = await chain.invoke({ messages: getConversationMessages(state.messages) });
+    const res = await chain.invoke({
+      messages: getConversationMessages(state.messages),
+      reflectionFeedback: state.reflection?.feedback || "（无）",
+    });
     const plan: Plan = {
       goal: res.goal.trim(),
       steps: res.steps
@@ -74,7 +82,14 @@ export const PlannerAgent: AgentDefinition = {
         .filter((step) => step.task.length > 0),
     };
     console.log("[Planner] plan generated", plan);
-    return { plan, currentStep: 0 };
+    return {
+      plan,
+      currentStep: 0,
+      lastExecutedStep: null,
+      executionResults: [],
+      reflection: null,
+      retryCount: 0,
+    };
   },
 };
 
@@ -97,14 +112,47 @@ export async function planConfirmNode(
 export async function modifyPlanNode(
   state: AgentRuntimeState,
 ): Promise<Partial<AgentRuntimeState>> {
+  const submittedPlan = state.decision?.plan;
+  if (submittedPlan) {
+    const plan: Plan = {
+      goal: submittedPlan.goal.trim(),
+      steps: submittedPlan.steps.map((step, index) => ({
+        id: index + 1,
+        task: step.task.trim(),
+      })),
+    };
+    return {
+      plan,
+      currentStep: 0,
+      lastExecutedStep: null,
+      executionResults: [],
+      reflection: null,
+      retryCount: 0,
+      decision: null,
+    };
+  }
+
   const note = state.decision?.message ?? "";
   return {
     plan: null,
     currentStep: 0,
+    lastExecutedStep: null,
     executionResults: [],
+    reflection: null,
+    retryCount: 0,
     decision: null,
     messages: [new HumanMessage(`用户修改意见：${note}`)],
   };
+}
+
+/**
+ * 用户直接提交完整计划时，再次进入 planConfirm 让用户确认；
+ * 用户只提交文字修改意见时，回到 Planner 重新生成计划。
+ */
+export function routeAfterPlanModification(
+  state: AgentRuntimeState,
+): "planner" | "planConfirm" {
+  return state.plan ? "planConfirm" : "planner";
 }
 
 /** 确认 interrupt 之后的条件边。 */

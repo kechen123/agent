@@ -1,11 +1,11 @@
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { AIMessage } from "@langchain/core/messages";
 import { model } from "../../services/llm";
-import { getTools } from "../../tools";
+import { getToolsByName } from "../../tools";
 import type { AgentRuntimeState } from "../../runtime/state";
 import type { AgentDefinition } from "../base";
 import { getCurrentTurnMessages } from "../../runtime/messages";
-import { skillPromptForState, withSkillPrompt } from "../../skills";
+import { getSkillByName, skillPromptForState, withSkillPrompt } from "../../skills";
 
 const SYSTEM_PROMPT = `你是一个工具调用助手，负责使用工具来完成用户的查询请求。
 
@@ -19,13 +19,17 @@ const SYSTEM_PROMPT = `你是一个工具调用助手，负责使用工具来完
 - 不要编造工具返回结果中没有的数据
 - 你的总结会被后续的 Reply Agent 进一步整理，所以保持简洁即可`;
 
-const buildChain = (systemPrompt: string) => {
+const buildChain = (
+  systemPrompt: string,
+  tools: ReturnType<typeof getToolsByName>,
+) => {
   const prompt = ChatPromptTemplate.fromMessages([
     ["system", systemPrompt],
     ["placeholder", "{messages}"],
   ]);
-  // 从注册表绑定所有启用的工具（graph.ts 不硬编码工具）。
-  return prompt.pipe(model.bindTools(getTools()));
+
+  // 没有可用工具时仍允许模型生成一段内部总结，然后进入 ReplyAgent。
+  return tools.length > 0 ? prompt.pipe(model.bindTools(tools)) : prompt.pipe(model);
 };
 
 /**
@@ -39,10 +43,41 @@ export const ToolAgent: AgentDefinition = {
   description: "调用工具完成用户请求",
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
-    const chain = buildChain(withSkillPrompt(SYSTEM_PROMPT, skillPromptForState(state)));
+    const skill = state.skillName ? getSkillByName(state.skillName) : undefined;
+    const tools = getToolsByName(skill?.tools);
+
+    if (tools.length === 0) {
+      const reason = state.skillName
+        ? `Skill "${state.skillName}" 没有允许当前可用工具`
+        : "当前没有注册或启用任何工具";
+      return {
+        messages: [new AIMessage({ content: reason, name: "toolAgent" })],
+        errors: [...state.errors, reason],
+      };
+    }
+
+    const remainingCalls = Math.max(0, state.maxToolCalls - state.toolCallCount);
+    const limitPrompt =
+      remainingCalls === 0
+        ? "\n\n本轮工具调用次数已达到上限。不要再调用工具，请基于已有结果结束工具阶段。"
+        : `\n\n本轮最多还可以发起 ${remainingCalls} 次工具调用。`;
+    const chain = buildChain(
+      withSkillPrompt(`${SYSTEM_PROMPT}${limitPrompt}`, skillPromptForState(state)),
+      tools,
+    );
     const res = await chain.invoke({ messages: getCurrentTurnMessages(state.messages) });
     res.name = "toolAgent";
-    return { messages: [res as AIMessage] };
+
+    const calls = res.tool_calls ?? [];
+    if (calls.length > remainingCalls) {
+      // 模型可能一次生成多个调用；这里只保留剩余额度内的调用。
+      res.tool_calls = calls.slice(0, remainingCalls);
+    }
+
+    return {
+      messages: [res as AIMessage],
+      toolCallCount: state.toolCallCount + (res.tool_calls?.length ?? 0),
+    };
   },
 };
 

@@ -9,6 +9,7 @@ const STATUS_DOT: Record<AgentUIEvent["status"], string> = {
 
 function summaryOf(metadata: AgentMessageMetadata): string {
   if (metadata.streamStatus === "error") return "执行遇到问题";
+  if (metadata.streamStatus === "cancelled") return "已停止生成";
   if (metadata.waitingForConfirm) return "计划已就绪，等待确认";
 
   const runningTool = metadata.toolCalls.find((call) => call.status === "running");
@@ -17,9 +18,12 @@ function summaryOf(metadata: AgentMessageMetadata): string {
   const runningEvent = metadata.events.find((event) => event.status === "running");
   if (runningEvent) return runningEvent.title;
 
-  const completedSteps = metadata.events.filter(
-    (event) => event.type === "executor:end" && event.status === "done",
-  ).length;
+  if (metadata.reflection?.status === "retry") {
+    return `正在重试，已重试 ${metadata.retryCount ?? 0} 次`;
+  }
+
+  // currentStep 只会在 Reflection 判定 pass 后推进，因此不会把 retry 误算成完成步骤。
+  const completedSteps = metadata.currentStep ?? 0;
   if (completedSteps > 0) return `已完成 ${completedSteps} 个步骤`;
 
   if (metadata.toolCalls.length > 0) return `已完成 ${metadata.toolCalls.length} 次工具调用`;
@@ -54,6 +58,10 @@ export function AgentWorkDetails({ metadata }: { metadata: AgentMessageMetadata 
   const [open, setOpen] = useState(isActive);
   const [manuallyToggled, setManuallyToggled] = useState(false);
   const summary = useMemo(() => summaryOf(metadata), [metadata]);
+  const currentStep = metadata.currentStep ?? 0;
+  const hasRunningExecutor = metadata.events.some(
+    (event) => event.type === "executor:start" && event.status === "running",
+  );
 
   useEffect(() => {
     if (!manuallyToggled) setOpen(isActive);
@@ -100,25 +108,58 @@ export function AgentWorkDetails({ metadata }: { metadata: AgentMessageMetadata 
 
       {open && (
         <div className="ml-3 mt-2 space-y-4 pl-2">
+          {(metadata.route || metadata.skillName) && (
+            <div className="flex flex-wrap gap-2 text-xs">
+              {metadata.route && (
+                <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-neutral-600">
+                  路由：{metadata.route}
+                </span>
+              )}
+              {metadata.skillName && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
+                  Skill：{metadata.skillName}
+                </span>
+              )}
+            </div>
+          )}
+
           {metadata.plan && (
             <section>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
                 执行计划
               </div>
               <ol className="max-h-56 space-y-2 overflow-y-auto pr-2">
-                {metadata.plan.steps.map((step) => (
+                {metadata.plan.steps.map((step, index) => {
+                  const completed = index < currentStep;
+                  const executing = index === currentStep && hasRunningExecutor;
+                  return (
                   <li key={step.id} className="flex gap-3 text-sm leading-6 text-neutral-600">
-                    <span className="w-4 shrink-0 text-right text-xs leading-6 text-neutral-400">
-                      {step.id}
+                    <span
+                      className={`mt-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                        completed
+                          ? "bg-emerald-500 text-white"
+                          : executing
+                            ? "bg-neutral-900 text-white"
+                            : "bg-neutral-200 text-neutral-500"
+                      }`}
+                    >
+                      {completed ? "✓" : step.id}
                     </span>
-                    <span className="min-w-0 break-words">{step.task}</span>
+                    <span
+                      className={`min-w-0 break-words ${
+                        completed ? "text-neutral-400 line-through" : ""
+                      }`}
+                    >
+                      {step.task}
+                    </span>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             </section>
           )}
 
-          {metadata.events.length > 0 && (
+          {visibleEvents.length > 0 && (
             <section className="space-y-2">
             {visibleEvents.map((event) => (
                   <div key={event.id} className="flex min-w-0 items-start gap-3">

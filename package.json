@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/app.ts",
     "typecheck": "tsc --noEmit",
+    "verify:agent-loop": "tsx scripts/verify-agent-loop.ts",
     "verify:skills": "tsx scripts/verify-skills.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

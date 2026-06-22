@@ -1,5 +1,26 @@
 import type { AgentStreamEvent } from "../types/agent-ui";
 
+function isAgentStreamEvent(value: unknown): value is AgentStreamEvent {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "type" in value &&
+      typeof (value as { type?: unknown }).type === "string",
+  );
+}
+
+async function responseError(res: Response): Promise<Error> {
+  const fallback = `SSE 请求失败：${res.status} ${res.statusText}`;
+  try {
+    const body = (await res.json()) as { error?: unknown };
+    if (typeof body.error === "string") return new Error(body.error);
+    if (body.error) return new Error(JSON.stringify(body.error));
+  } catch {
+    // 响应不一定是 JSON，例如代理服务器返回的 HTML 错误页。
+  }
+  return new Error(fallback);
+}
+
 /**
  * LangGraph 后端的 SSE 读取器。
  *
@@ -28,7 +49,7 @@ export function openAgentStream(
       });
 
       if (!res.ok || !res.body) {
-        throw new Error(`SSE 请求失败：${res.status} ${res.statusText}`);
+        throw await responseError(res);
       }
 
       const reader = res.body.getReader();
@@ -42,7 +63,11 @@ export function openAgentStream(
           .map((line) => line.slice(5).trimStart())
           .join("\n");
         if (!data) return;
-        onEvent(JSON.parse(data) as AgentStreamEvent);
+        const parsed: unknown = JSON.parse(data);
+        if (!isAgentStreamEvent(parsed)) {
+          throw new Error("收到无法识别的 Agent SSE 事件");
+        }
+        onEvent(parsed);
       };
 
       while (true) {
@@ -62,8 +87,8 @@ export function openAgentStream(
       if (buffer.trim()) consumeFrame(buffer);
       onDone?.();
     } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      onError?.(err as Error);
+      if (err instanceof Error && err.name === "AbortError") return;
+      onError?.(err instanceof Error ? err : new Error(String(err)));
     }
   })();
 

@@ -12,6 +12,7 @@ dist/
 build/
 web/dist/
 web/build/
+*.tsbuildinfo
 
 # 日志和临时文件
 *.log

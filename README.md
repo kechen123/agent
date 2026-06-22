@@ -34,6 +34,8 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 MODEL_TEMPERATURE=0
 PORT=3000
 WEB_ORIGIN=http://localhost:5173
+MAX_AGENT_RETRIES=2
+MAX_TOOL_CALLS=8
 ENABLED_TOOLS=
 ENABLED_SKILLS=
 ```
@@ -45,6 +47,8 @@ ENABLED_SKILLS=
 - `DEEPSEEK_MODEL`：模型名；代码也兼容旧变量 `MODEL_NAME`。
 - `PORT`：后端监听端口，默认 `3000`。
 - `WEB_ORIGIN`：前端来源，默认 `http://localhost:5173`。
+- `MAX_AGENT_RETRIES`：单个步骤额外允许的重试次数，默认 `2`。
+- `MAX_TOOL_CALLS`：单轮对话允许的最大工具调用次数，默认 `8`。
 - `ENABLED_TOOLS` / `ENABLED_SKILLS`：逗号分隔白名单，留空表示启用全部已注册项；`ENABLED_SKILLS` 会影响 Router 可选 Skill、Agent 注入和 `GET /skills` 的 `enabled` 字段。
 
 ## 后端启动
@@ -54,6 +58,7 @@ ENABLED_SKILLS=
 ```bash
 pnpm install
 pnpm typecheck
+pnpm verify:agent-loop
 pnpm verify:skills
 pnpm dev
 ```
@@ -110,7 +115,7 @@ Vite 代理：
 
 ```text
 src/
-├─ agents/               # Agent 定义：router、planner、executor、reply、tool
+├─ agents/               # Agent 定义：router、planner、executor、reflection、reply、tool
 ├─ config/               # 环境变量配置
 ├─ routes/               # Hono HTTP / SSE 路由
 ├─ runtime/              # LangGraph 图、状态、checkpoint、HITL、入口
@@ -180,6 +185,8 @@ C:\Users\Administrator\.claude\skills
 name: frontend-design
 description: |
   Create production-grade frontend interfaces with strong visual craft.
+tools:
+  - getWeather
 ---
 
 # Frontend Design
@@ -195,6 +202,7 @@ Skill 正文会作为 agent4 的 Skill systemPrompt 使用。
 - `ENABLED_SKILLS` 是逗号分隔白名单；留空表示启用全部已成功注册的 Skill。
 - Router 只读取 Skill 的 `name` 和 `description`，不会读取完整正文。
 - 命中 Skill 后，Skill 正文会注入 Planner、Executor、Tool 和 Reply Agent。
+- `tools` 未声明表示使用全局启用工具，空数组表示禁止工具，非空数组表示工具白名单。
 
 `references/` 与 `scripts/` 说明：
 
@@ -215,6 +223,22 @@ Skill 正文会作为 agent4 的 Skill systemPrompt 使用。
 2. 实现 `AgentDefinition`。
 3. 在 `src/agents/index.ts` 导出。
 4. 在 `src/runtime/graph.ts` 中接入节点与边。
+
+## 当前 Agent Loop
+
+计划任务的主循环是：
+
+```text
+Planner → HITL → Executor → Reflection
+                         ├─ pass   → 下一步骤 / Reply
+                         ├─ retry  → 当前步骤 Executor
+                         ├─ replan → Planner
+                         └─ fail   → Reply
+```
+
+这里有一个刻意保留的学习边界：当前 `ExecutorAgent` 只根据上下文生成步骤结果，
+不会自动修改文件或访问外部系统。需要真实执行时，应把能力封装为 Tool，再让
+Executor 或专门的执行 Agent 使用 Tool Calling。
 
 ## assistant-ui 状态
 

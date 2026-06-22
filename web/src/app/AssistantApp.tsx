@@ -53,7 +53,10 @@ export function AssistantApp() {
     return () => controller.abort();
   }, [loadSkills]);
 
-  const actions: AgentActions = { resume, isRunning };
+  const actions = useMemo<AgentActions>(
+    () => ({ resume, isRunning }),
+    [isRunning, resume],
+  );
 
   const handleOpenSkills = useCallback(() => {
     setSkillsOpen(true);
@@ -62,13 +65,13 @@ export function AssistantApp() {
     }
   }, [loadSkills, skills.length, skillsError, skillsLoading]);
 
-  const handleSelectThread = (threadId: string) => {
+  const handleSelectThread = useCallback((threadId: string) => {
     setCurrentThreadId(threadId);
-  };
+  }, [setCurrentThreadId]);
 
-  const handleNewThread = () => {
+  const handleNewThread = useCallback(() => {
     newThread();
-  };
+  }, [newThread]);
 
   return (
     <AgentActionsContext.Provider value={actions}>
