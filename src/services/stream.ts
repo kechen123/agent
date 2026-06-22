@@ -2,10 +2,11 @@ import { getSnapshot, isWaitingForConfirm, getInterruptPlan } from "../runtime/c
 import { NODE_NAMES } from "../runtime/events";
 import type { AgentStreamEvent, Plan, PlanStep, Route } from "../types/agent";
 
-/** Minimal structural view of a LangGraph streamEvents v2 event. */
+/** LangGraph streamEvents v2 事件的最小结构视图。 */
 interface RawStreamEvent {
   event: string;
   name: string;
+  run_id?: string;
   data?: unknown;
   metadata?: { langgraph_node?: string; [k: string]: unknown };
 }
@@ -35,16 +36,16 @@ function textOf(chunk: unknown): string {
 }
 
 /**
- * Stream adapter: converts the raw LangGraph streamEvents stream into the
- * standardized AgentStreamEvent union the frontend consumes.
+ * 流适配器：将原始 LangGraph streamEvents 流转换为前端消费的
+ * 标准化 AgentStreamEvent 联合类型。
  *
- * Mapping rules:
- *  - node on_chain_start/on_chain_end  → <node>:start / <node>:end
- *  - planner:end carries the generated plan; executor:end carries the step
- *  - on_tool_start / on_tool_end       → tool:start / tool:end
- *  - on_chat_model_stream (replyAgent) → message:delta; model end → message:end
- *  - router/planner/executor/tool model streams are filtered out (not user-facing)
- *  - after the stream ends, if the thread is paused on a HITL interrupt → hitl:waiting
+ * 映射规则：
+ *  - 节点 on_chain_start/on_chain_end → <node>:start / <node>:end
+ *  - planner:end 携带生成的计划；executor:end 携带当前步骤
+ *  - on_tool_start / on_tool_end      → tool:start / tool:end
+ *  - on_chat_model_stream（replyAgent）→ message:delta；模型结束 → message:end
+ *  - router/planner/executor/tool 的模型流会被过滤（不面向用户）
+ *  - 流结束后，如果线程暂停在 HITL interrupt 上 → hitl:waiting
  */
 export async function* adaptStream(
   raw: AsyncIterable<RawStreamEvent>,
@@ -53,15 +54,16 @@ export async function* adaptStream(
   let messageBuffer = "";
   let currentPlan: Plan | null = null;
   let replied = false;
+  let finalStatus: "completed" | "waiting" = "completed";
 
-  // Seed the plan from the checkpoint so resume streams (where planner:end
-  // does not re-fire) can still resolve executor:end steps.
+  // 从 checkpoint 中预填计划，这样 resume 流（planner:end 不会重新触发）
+  // 仍然可以解析 executor:end 对应的步骤。
   try {
     const seed = await getSnapshot(threadId);
     const seedPlan = (seed.values as { plan?: Plan | null } | undefined)?.plan;
     if (seedPlan) currentPlan = seedPlan;
   } catch {
-    // ignore — snapshot may not exist yet on a fresh thread
+    // 忽略：新线程可能还没有 snapshot
   }
 
   try {
@@ -69,7 +71,7 @@ export async function* adaptStream(
       const node = nodeOf(e);
       const kind = e.event;
 
-      // ── Node lifecycle ────────────────────────────────────────────────
+      // ── 节点生命周期 ────────────────────────────────────────────────
       if (kind === "on_chain_start" && node && e.name === e.metadata?.langgraph_node) {
         if (node === "router") yield { type: "router:start", agent: NODE_NAMES.router };
         else if (node === "planner") yield { type: "planner:start", agent: NODE_NAMES.planner };
@@ -98,17 +100,27 @@ export async function* adaptStream(
         continue;
       }
 
-      // ── Tool lifecycle ────────────────────────────────────────────────
+      // ── 工具生命周期 ────────────────────────────────────────────────
       if (kind === "on_tool_start") {
-        yield { type: "tool:start", toolName: e.name, input: (e.data as { input?: unknown } | undefined)?.input };
+        yield {
+          type: "tool:start",
+          callId: e.run_id ?? e.name,
+          toolName: e.name,
+          input: (e.data as { input?: unknown } | undefined)?.input,
+        };
         continue;
       }
       if (kind === "on_tool_end") {
-        yield { type: "tool:end", toolName: e.name, output: (e.data as { output?: unknown } | undefined)?.output };
+        yield {
+          type: "tool:end",
+          callId: e.run_id ?? e.name,
+          toolName: e.name,
+          output: (e.data as { output?: unknown } | undefined)?.output,
+        };
         continue;
       }
 
-      // ── User-facing message deltas (replyAgent only) ──────────────────
+      // ── 面向用户的消息增量（仅 replyAgent）──────────────────────────
       if (kind === "on_chat_model_stream" && node === "reply") {
         const chunk = (e.data as { chunk?: unknown } | undefined)?.chunk;
         const text = textOf(chunk);
@@ -130,27 +142,32 @@ export async function* adaptStream(
       }
     }
 
-    // Flush a trailing message if the model-end event was missed.
+    // 如果漏掉了模型结束事件，则补刷尾部消息。
     if (replied) {
       yield { type: "message:end", content: messageBuffer };
       messageBuffer = "";
       replied = false;
     }
 
-    // ── HITL: detect a paused thread after the stream settles ──────────
+    // ── HITL：流稳定后检测暂停中的线程 ─────────────────────────────
     const snapshot = await getSnapshot(threadId);
     if (isWaitingForConfirm(snapshot)) {
       const plan = getInterruptPlan(snapshot) ?? currentPlan;
-      if (plan) yield { type: "hitl:waiting", plan };
+      if (plan) {
+        finalStatus = "waiting";
+        yield { type: "hitl:waiting", plan };
+      }
     }
+    yield { type: "stream:end", status: finalStatus };
   } catch (err) {
     yield { type: "error", message: (err as Error).message ?? String(err) };
+    yield { type: "stream:end", status: "error" };
   }
 }
 
 /**
- * Adapter for a resume (HITL) stream. Emits a hitl:done up front with the
- * chosen action, then forwards the standardized events from the resumed graph.
+ * resume（HITL）流适配器。先发出带有已选 action 的 hitl:done，
+ * 然后转发恢复后的图产生的标准化事件。
  */
 export async function* adaptResumeStream(
   raw: AsyncIterable<RawStreamEvent>,

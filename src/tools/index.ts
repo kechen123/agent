@@ -1,7 +1,7 @@
 import { registerTool } from "./registry";
 import { getWeather } from "./weather.tool";
 
-/** Register built-in tools. Call once at startup. */
+/** 注册内置工具。启动时调用一次。 */
 export function registerBuiltinTools(): void {
   registerTool(getWeather);
 }

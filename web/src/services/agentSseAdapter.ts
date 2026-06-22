@@ -35,28 +35,31 @@ export function openAgentStream(
       const decoder = new TextDecoder();
       let buffer = "";
 
+      const consumeFrame = (frame: string) => {
+        const data = frame
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (!data) return;
+        onEvent(JSON.parse(data) as AgentStreamEvent);
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // SSE 事件之间用空行分隔；单个事件可能包含多行 data。
-        let sep: number;
-        while ((sep = buffer.indexOf("\n\n")) !== -1) {
-          const rawEvent = buffer.slice(0, sep);
-          buffer = buffer.slice(sep + 2);
-          for (const line of rawEvent.split("\n")) {
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload) continue;
-            try {
-              onEvent(JSON.parse(payload) as AgentStreamEvent);
-            } catch {
-              // 忽略格式不合法的 SSE data 行。
-            }
-          }
+        let match = /\r?\n\r?\n/.exec(buffer);
+        while (match) {
+          const rawEvent = buffer.slice(0, match.index);
+          buffer = buffer.slice(match.index + match[0].length);
+          consumeFrame(rawEvent);
+          match = /\r?\n\r?\n/.exec(buffer);
         }
       }
+      buffer += decoder.decode();
+      if (buffer.trim()) consumeFrame(buffer);
       onDone?.();
     } catch (err) {
       if ((err as Error).name === "AbortError") return;

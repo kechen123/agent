@@ -1,11 +1,11 @@
 import { Annotation } from "@langchain/langgraph";
 import { BaseMessage, SystemMessage } from "@langchain/core/messages";
-import type { Plan, Route, HitlDecision } from "../types/agent";
+import type { Plan, Route, HitlDecision, ReflectionResult } from "../types/agent";
 
 /**
- * Runtime state shared across all agents.
- * Field reducers matter: `messages` and `executionResults` are append-only
- * (concat), the rest are last-writer-wins.
+ * 所有 Agent 共享的运行时状态。
+ * 字段 reducer 很重要：`messages` 和 `executionResults` 只追加
+ *（concat），其余字段采用最后写入者获胜。
  */
 export const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -25,7 +25,7 @@ export const AgentState = Annotation.Root({
     default: () => 0,
   }),
   executionResults: Annotation<string[]>({
-    reducer: (oldValue, newValue) => oldValue.concat(newValue),
+    reducer: (_oldValue, newValue) => newValue,
     default: () => [],
   }),
   skillName: Annotation<string | null>({
@@ -35,6 +35,26 @@ export const AgentState = Annotation.Root({
   decision: Annotation<HitlDecision | null>({
     reducer: (_, v) => v,
     default: () => null,
+  }),
+  //保存 ReflectionAgent 的判断结果
+  reflection: Annotation<ReflectionResult | null>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => null,
+  }),
+  //记录当前步骤已经重试几次。
+  retryCount: Annotation<number>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => 0,
+  }),
+  //最大重试次数。
+  maxRetries: Annotation<number>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => 2,
+  }),
+  //保存失败原因。
+  errors: Annotation<string[]>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => [],
   }),
 });
 

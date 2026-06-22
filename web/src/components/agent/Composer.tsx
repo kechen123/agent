@@ -40,9 +40,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   return (
     <form
       onSubmit={handleSubmit}
-      className="shrink-0 border-t border-transparent bg-[#f7f7f8] px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 sm:px-6"
+      className="shrink-0 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-2 sm:px-6"
     >
-      <div className="mx-auto flex w-full max-w-[800px] items-end gap-2 rounded-2xl border border-neutral-300 bg-white p-2 shadow-sm transition focus-within:border-neutral-500 focus-within:ring-2 focus-within:ring-neutral-200">
+      <div className="mx-auto flex w-full max-w-[800px] items-end gap-2 rounded-3xl bg-[#f4f4f4] p-2 shadow-[0_8px_30px_rgba(0,0,0,0.06)] transition focus-within:bg-white focus-within:ring-2 focus-within:ring-neutral-200">
         <textarea
           ref={textareaRef}
           value={value}

@@ -4,6 +4,8 @@ import { model } from "../../services/llm";
 import { getTools } from "../../tools";
 import type { AgentRuntimeState } from "../../runtime/state";
 import type { AgentDefinition } from "../base";
+import { getCurrentTurnMessages } from "../../runtime/messages";
+import { skillPromptForState, withSkillPrompt } from "../../skills";
 
 const SYSTEM_PROMPT = `你是一个工具调用助手，负责使用工具来完成用户的查询请求。
 
@@ -17,33 +19,34 @@ const SYSTEM_PROMPT = `你是一个工具调用助手，负责使用工具来完
 - 不要编造工具返回结果中没有的数据
 - 你的总结会被后续的 Reply Agent 进一步整理，所以保持简洁即可`;
 
-const buildChain = () => {
+const buildChain = (systemPrompt: string) => {
   const prompt = ChatPromptTemplate.fromMessages([
-    ["system", SYSTEM_PROMPT],
+    ["system", systemPrompt],
     ["placeholder", "{messages}"],
   ]);
-  // Bind all enabled tools from the registry (graph.ts never hardcodes tools).
+  // 从注册表绑定所有启用的工具（graph.ts 不硬编码工具）。
   return prompt.pipe(model.bindTools(getTools()));
 };
 
 /**
- * ToolAgent — orchestrates tool calls.
- * NOTE: its own streamed content is filtered out by the stream adapter; only
- * ReplyAgent emits user-facing `message:delta`. This node's job is to drive
- * the tool loop; the final natural-language reply is produced by ReplyAgent.
+ * ToolAgent — 编排工具调用。
+ * 注意：它自身的流式内容会被 stream adapter 过滤；只有 ReplyAgent
+ * 会产生面向用户的 `message:delta`。本节点负责驱动工具循环；
+ * 最终自然语言回复由 ReplyAgent 生成。
  */
 export const ToolAgent: AgentDefinition = {
   name: "toolAgent",
   description: "调用工具完成用户请求",
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
-    const chain = buildChain();
-    const res = await chain.invoke({ messages: state.messages });
+    const chain = buildChain(withSkillPrompt(SYSTEM_PROMPT, skillPromptForState(state)));
+    const res = await chain.invoke({ messages: getCurrentTurnMessages(state.messages) });
+    res.name = "toolAgent";
     return { messages: [res as AIMessage] };
   },
 };
 
-/** Conditional edge: if the model emitted tool_calls → tools node, else → reply. */
+/** 条件边：如果模型产生 tool_calls 则进入 tools 节点，否则进入 reply。 */
 export function routeAfterTool(state: AgentRuntimeState): "tools" | "reply" {
   const lastMsg = state.messages[state.messages.length - 1] as AIMessage;
   if (lastMsg && lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {

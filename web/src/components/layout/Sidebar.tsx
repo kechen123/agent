@@ -5,6 +5,8 @@ interface SidebarProps {
   onNew: () => void;
   className?: string;
   onAfterSelect?: () => void;
+  enabledSkillsCount: number;
+  onOpenSkills: () => void;
 }
 
 export function Sidebar({
@@ -14,6 +16,8 @@ export function Sidebar({
   onNew,
   className = "",
   onAfterSelect,
+  enabledSkillsCount,
+  onOpenSkills,
 }: SidebarProps) {
   const handleSelect = (id: string) => {
     onSelect(id);
@@ -22,19 +26,19 @@ export function Sidebar({
 
   return (
     <aside
-      className={`h-full w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-[#f3f3f3] px-3 py-3 ${className}`}
+      className={`h-full w-[260px] shrink-0 flex-col bg-[#171717] px-3 py-3 text-white ${className}`}
     >
       <div className="flex h-12 items-center px-2">
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-neutral-950">Agent Runtime</div>
-          <div className="truncate text-xs text-neutral-500">Chat workbench</div>
+          <div className="truncate text-sm font-semibold text-white">Agent Runtime</div>
+          <div className="truncate text-xs text-neutral-400">Chat workbench</div>
         </div>
       </div>
 
       <button
         type="button"
         onClick={onNew}
-        className="mb-3 flex h-10 items-center justify-center gap-2 rounded-xl border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-900 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-400/30"
+        className="mb-3 flex h-10 items-center justify-center gap-2 rounded-xl bg-neutral-800 px-3 text-sm font-medium text-white transition hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-white/20"
       >
         <span className="text-base leading-none">＋</span>
         新建会话
@@ -50,8 +54,8 @@ export function Sidebar({
               onClick={() => handleSelect(thread.id)}
               className={`group w-full rounded-xl px-3 py-2.5 text-left text-sm transition ${
                 active
-                  ? "bg-white font-medium text-neutral-950 shadow-sm shadow-neutral-200"
-                  : "text-neutral-600 hover:bg-white/70 hover:text-neutral-950"
+                  ? "bg-neutral-700 font-medium text-white"
+                  : "text-neutral-300 hover:bg-neutral-800 hover:text-white"
               }`}
             >
               <span className="block truncate">{thread.title || "新会话"}</span>
@@ -59,6 +63,19 @@ export function Sidebar({
           );
         })}
       </nav>
+
+      <div className="mt-3 pt-3">
+        <button
+          type="button"
+          onClick={onOpenSkills}
+          className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-sm text-neutral-300 transition hover:bg-neutral-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
+        >
+          <span>Skills</span>
+          <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">
+            {enabledSkillsCount}
+          </span>
+        </button>
+      </div>
     </aside>
   );
 }

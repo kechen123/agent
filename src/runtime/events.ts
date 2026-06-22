@@ -1,12 +1,13 @@
 export type { AgentStreamEvent } from "../types/agent";
 
-/** Serialize a standardized event as an SSE `data:` line. */
+/** 将标准化事件序列化为 SSE `data:` 行。 */
 export function toSseData(event: unknown): string {
   return `data: ${JSON.stringify(event)}`;
 }
 
-/** Node names emitted by the runtime graph — used by the stream adapter. */
+/** runtime graph 发出的节点名称，供 stream adapter 使用。 */
 export const NODE_NAMES = {
+  beginTurn: "beginTurn",
   router: "routerAgent",
   planner: "plannerAgent",
   executor: "executorAgent",

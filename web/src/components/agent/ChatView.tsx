@@ -12,6 +12,8 @@ interface ChatViewProps {
   onNewThread: () => void;
   onSend: (message: string) => void;
   onCancel: () => void;
+  enabledSkillsCount: number;
+  onOpenSkills: () => void;
 }
 
 const BOTTOM_THRESHOLD = 120;
@@ -24,6 +26,8 @@ export function ChatView({
   onNewThread,
   onSend,
   onCancel,
+  enabledSkillsCount,
+  onOpenSkills,
 }: ChatViewProps) {
   const [draft, setDraft] = useState("");
   const [isNearBottom, setIsNearBottom] = useState(true);
@@ -68,8 +72,8 @@ export function ChatView({
   };
 
   return (
-    <section className="flex h-[100dvh] min-w-0 flex-col overflow-hidden bg-[#f7f7f8]">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200/80 bg-[#f7f7f8]/95 px-3 backdrop-blur sm:px-5">
+    <section className="flex h-[100dvh] min-w-0 flex-col overflow-hidden bg-white">
+      <header className="flex h-14 shrink-0 items-center justify-between bg-white/95 px-3 backdrop-blur sm:px-5">
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
@@ -81,24 +85,33 @@ export function ChatView({
           </button>
           <h1 className="truncate text-sm font-semibold text-neutral-950 sm:text-base">{title || "新会话"}</h1>
         </div>
-        <button
-          type="button"
-          onClick={onNewThread}
-          className="hidden h-9 rounded-full px-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 sm:inline-flex sm:items-center"
-        >
-          新建会话
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenSkills}
+            className="hidden rounded-full bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 sm:inline-flex"
+          >
+            已启用 {enabledSkillsCount} 个 Skills
+          </button>
+          <button
+            type="button"
+            onClick={onNewThread}
+            className="hidden h-9 rounded-full px-3 text-sm font-medium text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 sm:inline-flex sm:items-center"
+          >
+            新建会话
+          </button>
+        </div>
       </header>
 
       <div ref={scrollRef} onScroll={updateNearBottom} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col gap-5 px-3 py-6 sm:px-6">
+        <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col gap-8 px-3 py-8 sm:px-6">
           {messages.length === 0 ? (
             <EmptyState onPickSuggestion={handlePickSuggestion} />
           ) : (
             messages.map((message) =>
               message.role === "user" ? (
                 <div key={message.id} className="flex w-full justify-end">
-                  <div className="max-w-[min(78%,34rem)] whitespace-pre-wrap break-words rounded-3xl bg-neutral-200 px-4 py-2.5 text-sm leading-6 text-neutral-900 sm:max-w-[72%]">
+                  <div className="max-w-[min(82%,36rem)] whitespace-pre-wrap break-words rounded-[22px] bg-[#f4f4f4] px-4 py-2.5 text-[15px] leading-6 text-neutral-900 sm:max-w-[72%]">
                     {message.content}
                   </div>
                 </div>
@@ -114,7 +127,7 @@ export function ChatView({
           <button
             type="button"
             onClick={() => scrollToBottom("smooth")}
-            className="sticky bottom-3 left-1/2 z-10 mx-auto mb-3 flex -translate-x-0 items-center rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+            className="sticky bottom-3 left-1/2 z-10 mx-auto mb-3 flex items-center rounded-full bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-300"
           >
             回到底部
           </button>

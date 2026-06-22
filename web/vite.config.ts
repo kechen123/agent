@@ -1,20 +1,28 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Proxy /chat to the LangGraph backend (default http://localhost:3000).
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    port: 5173,
-    proxy: {
-      "/chat": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
-      },
-      "/health": {
-        target: "http://localhost:3000",
-        changeOrigin: true,
+// 将 /chat 代理到 LangGraph 后端（默认 http://localhost:3000）。
+export default defineConfig(() => {
+  const proxyTarget = process.env.VITE_API_PROXY_TARGET ?? "http://localhost:3000";
+
+  return {
+    plugins: [react()],
+    server: {
+      port: 5173,
+      proxy: {
+        "/chat": {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        "/health": {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
+        "/skills": {
+          target: proxyTarget,
+          changeOrigin: true,
+        },
       },
     },
-  },
+  };
 });

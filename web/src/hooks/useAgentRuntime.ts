@@ -20,14 +20,23 @@ interface ThreadState {
   messages: UiMessage[];
 }
 
-const EMPTY_META: AgentMessageMetadata = { events: [], toolCalls: [] };
+interface ActiveRun {
+  controller: AbortController;
+  assistantId: string;
+}
+
+const EMPTY_META: AgentMessageMetadata = {
+  events: [],
+  toolCalls: [],
+  streamStatus: "completed",
+};
 
 let idCounter = 0;
 const nextId = () => `m-${Date.now()}-${idCounter++}`;
 const nextEventId = () => `e-${Date.now()}-${idCounter++}`;
 
-function emptyMeta(): AgentMessageMetadata {
-  return { events: [], toolCalls: [] };
+function emptyMeta(streamStatus: AgentMessageMetadata["streamStatus"] = "completed"): AgentMessageMetadata {
+  return { events: [], toolCalls: [], streamStatus };
 }
 
 export function useAgentRuntime() {
@@ -35,157 +44,166 @@ export function useAgentRuntime() {
     { id: "t-1", title: "新会话", messages: [] },
   ]);
   const [currentThreadId, setCurrentThreadId] = useState<string>("t-1");
-  const [running, setRunning] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+  const [runningThreadIds, setRunningThreadIds] = useState<Set<string>>(() => new Set());
+  const activeRunsRef = useRef(new Map<string, ActiveRun>());
 
   const currentThread = useMemo(
-    () => threads.find((t) => t.id === currentThreadId) ?? threads[0],
+    () => threads.find((thread) => thread.id === currentThreadId) ?? threads[0],
     [threads, currentThreadId],
   );
 
   const updateThread = useCallback(
-    (threadId: string, updater: (t: ThreadState) => ThreadState) => {
-      setThreads((prev) => prev.map((t) => (t.id === threadId ? updater(t) : t)));
+    (threadId: string, updater: (thread: ThreadState) => ThreadState) => {
+      setThreads((previous) =>
+        previous.map((thread) => (thread.id === threadId ? updater(thread) : thread)),
+      );
     },
     [],
   );
 
   const patchAssistant = useCallback(
-    (threadId: string, assistantId: string, patch: (m: UiMessage) => UiMessage) => {
-      updateThread(threadId, (t) => ({
-        ...t,
-        messages: t.messages.map((m) => (m.id === assistantId ? patch(m) : m)),
+    (threadId: string, assistantId: string, patch: (message: UiMessage) => UiMessage) => {
+      updateThread(threadId, (thread) => ({
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.id === assistantId ? patch(message) : message,
+        ),
       }));
     },
     [updateThread],
   );
 
-  // 将后端标准 SSE 事件折叠到当前 assistant 消息的内容和元数据中。
-  const applyEvent = useCallback(
-    (threadId: string, assistantId: string, ev: AgentStreamEvent) => {
-      patchAssistant(threadId, assistantId, (m) => {
-        const meta: AgentMessageMetadata = {
-          events: [...m.metadata.events],
-          toolCalls: [...m.metadata.toolCalls],
-          plan: m.metadata.plan,
-          waitingForConfirm: m.metadata.waitingForConfirm,
-        };
-        let content = m.content;
+  const setThreadRunning = useCallback((threadId: string, running: boolean) => {
+    setRunningThreadIds((previous) => {
+      const next = new Set(previous);
+      if (running) next.add(threadId);
+      else next.delete(threadId);
+      return next;
+    });
+  }, []);
 
-        switch (ev.type) {
-          case "router:start": {
+  const applyEvent = useCallback(
+    (threadId: string, assistantId: string, event: AgentStreamEvent) => {
+      patchAssistant(threadId, assistantId, (message) => {
+        const meta: AgentMessageMetadata = {
+          events: [...message.metadata.events],
+          toolCalls: message.metadata.toolCalls.map((call) => ({ ...call })),
+          plan: message.metadata.plan,
+          waitingForConfirm: message.metadata.waitingForConfirm,
+          streamStatus: message.metadata.streamStatus,
+        };
+        let content = message.content;
+
+        switch (event.type) {
+          case "router:start":
             meta.events.push({
               id: nextEventId(),
-              type: ev.type,
-              title: "路由分析",
-              description: "判断用户意图",
+              type: event.type,
+              title: "理解请求",
+              description: "判断最合适的处理方式",
               status: "running",
             });
             break;
-          }
-          case "router:end": {
-            meta.events.push({
-              id: nextEventId(),
-              type: ev.type,
-              title: "路由结果",
-              description: `→ ${ev.route}`,
-              data: { route: ev.route },
-              status: "done",
-            });
+          case "router:end":
             markLast(meta.events, "router:start", "done");
             break;
-          }
-          case "planner:start": {
+          case "planner:start":
             meta.events.push({
               id: nextEventId(),
-              type: ev.type,
-              title: "任务规划",
-              description: "拆解执行步骤",
+              type: event.type,
+              title: "制定计划",
+              description: "拆解为可执行步骤",
               status: "running",
             });
             break;
-          }
-          case "planner:end": {
-            meta.plan = ev.plan;
-            meta.events.push({
-              id: nextEventId(),
-              type: ev.type,
-              title: "计划已生成",
-              description: ev.plan.goal,
-              data: ev.plan,
-              status: "done",
-            });
+          case "planner:end":
+            meta.plan = event.plan;
             markLast(meta.events, "planner:start", "done");
-            break;
-          }
-          case "executor:start": {
             meta.events.push({
               id: nextEventId(),
-              type: ev.type,
-              title: "执行步骤",
-              status: "running",
-            });
-            break;
-          }
-          case "executor:end": {
-            meta.events.push({
-              id: nextEventId(),
-              type: ev.type,
-              title: `执行第 ${ev.step.id} 步`,
-              description: ev.step.task,
-              data: ev.step,
+              type: event.type,
+              title: "计划已生成",
+              description: event.plan.goal,
+              data: event.plan,
               status: "done",
             });
-            markLast(meta.events, "executor:start", "done");
             break;
-          }
-          case "tool:start": {
-            meta.toolCalls.push({
+          case "executor:start":
+            meta.events.push({
               id: nextEventId(),
-              toolName: ev.toolName,
-              input: ev.input,
+              type: event.type,
+              title: "执行计划",
               status: "running",
             });
             break;
-          }
+          case "executor:end":
+            markLast(meta.events, "executor:start", "done");
+            meta.events.push({
+              id: nextEventId(),
+              type: event.type,
+              title: `完成第 ${event.step.id} 步`,
+              description: event.step.task,
+              data: event.step,
+              status: "done",
+            });
+            break;
+          case "tool:start":
+            meta.toolCalls.push({
+              id: event.callId,
+              toolName: event.toolName,
+              input: event.input,
+              status: "running",
+            });
+            break;
           case "tool:end": {
-            const last = meta.toolCalls[meta.toolCalls.length - 1];
-            if (last && last.toolName === ev.toolName && last.status === "running") {
-              last.output = ev.output;
-              last.status = "done";
+            const call = meta.toolCalls.find((item) => item.id === event.callId);
+            if (call) {
+              call.output = event.output;
+              call.status = "done";
             }
             break;
           }
-          case "message:delta": {
-            content += ev.content;
+          case "message:delta":
+            content += event.content;
             break;
-          }
-          case "message:end": {
-            content = ev.content || content;
+          case "message:end":
+            content = event.content || content;
             break;
-          }
-          case "hitl:waiting": {
-            meta.plan = ev.plan;
+          case "hitl:waiting":
+            meta.plan = event.plan;
             meta.waitingForConfirm = true;
+            meta.streamStatus = "waiting";
             break;
-          }
-          case "hitl:done": {
+          case "hitl:done":
             meta.waitingForConfirm = false;
+            meta.streamStatus = "streaming";
             break;
-          }
-          case "error": {
+          case "error":
+            meta.streamStatus = "error";
+            finalizeRunning(meta, "error");
             meta.events.push({
               id: nextEventId(),
               type: "error",
-              title: "出错了",
-              description: ev.message,
+              title: "运行失败",
+              description: event.message,
               status: "error",
             });
             break;
-          }
+          case "stream:end":
+            meta.streamStatus = event.status === "waiting" ? "waiting" : event.status;
+            finalizeRunning(meta, event.status === "error" ? "error" : "done");
+            if (event.status === "cancelled") {
+              meta.events.push({
+                id: nextEventId(),
+                type: event.type,
+                title: "已停止生成",
+                status: "done",
+              });
+            }
+            break;
         }
 
-        return { ...m, content, metadata: meta };
+        return { ...message, content, metadata: meta };
       });
     },
     [patchAssistant],
@@ -193,81 +211,111 @@ export function useAgentRuntime() {
 
   const startStream = useCallback(
     (url: string, body: unknown, threadId: string, assistantId: string) => {
-      setRunning(true);
-      const controller = openAgentStream(
+      setThreadRunning(threadId, true);
+      let terminalEventReceived = false;
+      let controller: AbortController;
+
+      const cleanup = () => {
+        const active = activeRunsRef.current.get(threadId);
+        if (active?.controller === controller) {
+          activeRunsRef.current.delete(threadId);
+          setThreadRunning(threadId, false);
+        }
+      };
+
+      controller = openAgentStream(
         url,
         body,
-        (ev) => applyEvent(threadId, assistantId, ev),
-        () => {
-          setRunning(false);
-          abortRef.current = null;
+        (event) => {
+          if (event.type === "stream:end") terminalEventReceived = true;
+          applyEvent(threadId, assistantId, event);
         },
-        (err) => {
-          applyEvent(threadId, assistantId, { type: "error", message: err.message });
-          setRunning(false);
-          abortRef.current = null;
+        () => {
+          if (!terminalEventReceived) {
+            applyEvent(threadId, assistantId, {
+              type: "error",
+              message: "连接提前结束，未收到完整的运行结果。",
+            });
+          }
+          cleanup();
+        },
+        (error) => {
+          applyEvent(threadId, assistantId, { type: "error", message: error.message });
+          cleanup();
         },
       );
-      abortRef.current = controller;
+
+      activeRunsRef.current.set(threadId, { controller, assistantId });
       return controller;
     },
-    [applyEvent],
+    [applyEvent, setThreadRunning],
   );
 
   const sendMessage = useCallback(
     (text: string) => {
       const message = text.trim();
-      if (!message || running) return;
+      if (!message || activeRunsRef.current.has(currentThreadId)) return;
 
-      const userMsg: UiMessage = {
+      const userMessage: UiMessage = {
         id: nextId(),
         role: "user",
         content: message,
         metadata: emptyMeta(),
       };
-      const assistantMsg: UiMessage = {
+      const assistantMessage: UiMessage = {
         id: nextId(),
         role: "assistant",
         content: "",
-        metadata: emptyMeta(),
+        metadata: emptyMeta("streaming"),
       };
 
-      updateThread(currentThreadId, (t) => ({
-        ...t,
-        title: t.messages.length === 0 ? message.slice(0, 24) : t.title,
-        messages: [...t.messages, userMsg, assistantMsg],
+      updateThread(currentThreadId, (thread) => ({
+        ...thread,
+        title: thread.messages.length === 0 ? message.slice(0, 24) : thread.title,
+        messages: [...thread.messages, userMessage, assistantMessage],
       }));
 
-      startStream("/chat", { threadId: currentThreadId, message }, currentThreadId, assistantMsg.id);
+      startStream(
+        "/chat",
+        { threadId: currentThreadId, message },
+        currentThreadId,
+        assistantMessage.id,
+      );
     },
-    [currentThreadId, running, startStream, updateThread],
+    [currentThreadId, startStream, updateThread],
   );
 
-  const cancel = useCallback(async () => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setRunning(false);
-  }, []);
+  const cancel = useCallback(() => {
+    const active = activeRunsRef.current.get(currentThreadId);
+    if (!active) return;
+    applyEvent(currentThreadId, active.assistantId, {
+      type: "stream:end",
+      status: "cancelled",
+    });
+    active.controller.abort();
+    activeRunsRef.current.delete(currentThreadId);
+    setThreadRunning(currentThreadId, false);
+  }, [applyEvent, currentThreadId, setThreadRunning]);
 
-  // 恢复暂停的 HITL 线程：确认 / 修改 / 拒绝。
   const resume = useCallback(
     (action: HitlAction, message?: string) => {
-      const thread = threads.find((t) => t.id === currentThreadId);
-      if (!thread || running) return;
-      const lastAssistant = [...thread.messages].reverse().find((m) => m.role === "assistant");
-      if (!lastAssistant) return;
+      const thread = threads.find((item) => item.id === currentThreadId);
+      if (!thread || activeRunsRef.current.has(currentThreadId)) return;
+      const assistantMessage = [...thread.messages]
+        .reverse()
+        .find((item) => item.role === "assistant" && item.metadata.waitingForConfirm);
+      if (!assistantMessage) return;
 
       const body: Record<string, unknown> = { threadId: currentThreadId, action };
       if (action === "modify" && message) body.message = message;
-
-      startStream("/chat/resume", body, currentThreadId, lastAssistant.id);
+      startStream("/chat/resume", body, currentThreadId, assistantMessage.id);
     },
-    [currentThreadId, running, threads, startStream],
+    [currentThreadId, startStream, threads],
   );
 
   const newThread = useCallback(() => {
     const id = `t-${Date.now()}`;
-    setThreads((prev) => [...prev, { id, title: "新会话", messages: [] }]);
+    setThreads((previous) => [...previous, { id, title: "新会话", messages: [] }]);
     setCurrentThreadId(id);
   }, []);
 
@@ -280,16 +328,28 @@ export function useAgentRuntime() {
     sendMessage,
     resume,
     cancel,
-    isRunning: running,
+    isRunning: runningThreadIds.has(currentThreadId),
   };
 }
 
 function markLast(events: AgentUIEvent[], type: string, status: AgentUIEvent["status"]) {
-  for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].type === type) {
-      events[i].status = status;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index].type === type && events[index].status === "running") {
+      events[index].status = status;
       return;
     }
+  }
+}
+
+function finalizeRunning(
+  meta: AgentMessageMetadata,
+  status: AgentUIEvent["status"],
+) {
+  for (const event of meta.events) {
+    if (event.status === "running") event.status = status;
+  }
+  for (const call of meta.toolCalls) {
+    if (call.status === "running") call.status = status;
   }
 }
 

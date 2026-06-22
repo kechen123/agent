@@ -1,29 +1,66 @@
 import { config } from "../config";
-import type { Skill } from "../types/agent";
+import type { RegisteredSkill, Skill, SkillSource, SkillSummary } from "../types/agent";
 
-const registry = new Map<string, Skill>();
+const registry = new Map<string, RegisteredSkill>();
 
-/** Register a skill. Overwrites an existing skill with the same name. */
-export function registerSkill(skill: Skill): void {
-  registry.set(skill.name, skill);
+function catalogDescription(description: string): string {
+  return description.replace(/\s+/g, " ").trim();
 }
 
-export function getSkillByName(name: string): Skill | undefined {
-  return registry.get(name);
-}
-
-export function listSkills(): Skill[] {
-  const all = Array.from(registry.values());
+function isEnabled(name: string): boolean {
   const enabled = config.enabledSkills;
-  if (enabled.length === 0) return all;
-  return all.filter((s) => enabled.includes(s.name));
+  return enabled.length === 0 || enabled.includes(name);
 }
 
-/** Returns the list of skills as a concise catalog for the router prompt. */
+/** 注册一个 skill。同名 skill 会被覆盖。 */
+export function registerSkill(skill: Skill, source: SkillSource = "builtin"): void {
+  const previous = registry.get(skill.name);
+  if (previous && previous.source !== source) {
+    console.log(
+      `[Skills] ${source} skill "${skill.name}" overrides ${previous.source} skill`,
+    );
+  }
+  registry.set(skill.name, { ...skill, source });
+}
+
+export function getSkillByName(name: string): RegisteredSkill | undefined {
+  const skill = registry.get(name);
+  if (!skill || !isEnabled(skill.name)) return undefined;
+  return skill;
+}
+
+export function listSkills(): RegisteredSkill[] {
+  return Array.from(registry.values()).filter((skill) => isEnabled(skill.name));
+}
+
+export function listAllSkills(): RegisteredSkill[] {
+  return Array.from(registry.values());
+}
+
+export function listSkillSummaries(): SkillSummary[] {
+  return listAllSkills()
+    .map((skill) => ({
+      name: skill.name,
+      description: skill.description,
+      source: skill.source,
+      enabled: isEnabled(skill.name),
+    }))
+    .sort((a, b) => {
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+/** 以简洁目录形式返回 skill 列表，供 router 提示词使用。 */
 export function skillCatalogText(): string {
   const skills = listSkills();
   if (skills.length === 0) return "（暂无可用 skill）";
-  return skills
-    .map((s) => `- ${s.name}: ${s.description}`)
-    .join("\n");
+  return JSON.stringify(
+    skills.map((skill) => ({
+      name: skill.name,
+      description: catalogDescription(skill.description),
+    })),
+    null,
+    2,
+  );
 }

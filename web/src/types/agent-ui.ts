@@ -1,4 +1,4 @@
-// ─── 后端标准化 SSE 事件（与后端 types/agent.ts 保持镜像） ───────────────
+// ─── 后端标准化流事件（与后端 types/agent.ts 保持镜像）──────────────────
 
 export interface PlanStep {
   id: number;
@@ -19,19 +19,20 @@ export type AgentStreamEvent =
   | { type: "planner:end"; plan: Plan }
   | { type: "executor:start"; agent: string }
   | { type: "executor:end"; step: PlanStep; currentStep: number }
-  | { type: "tool:start"; toolName: string; input: unknown }
-  | { type: "tool:end"; toolName: string; output: unknown }
+  | { type: "tool:start"; callId: string; toolName: string; input: unknown }
+  | { type: "tool:end"; callId: string; toolName: string; output: unknown }
   | { type: "message:delta"; content: string }
   | { type: "message:end"; content: string }
   | { type: "hitl:waiting"; plan: Plan }
   | { type: "hitl:done"; action: HitlAction }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "stream:end"; status: "completed" | "waiting" | "error" | "cancelled" };
 
-// ─── 前端 UI 类型 ───────────────────────────────────────────────────────────
+// ─── 前端界面类型 ───────────────────────────────────────────────────────────
 
 export type AgentEventStatus = "running" | "done" | "error";
 
-// Agent 执行时间线中的一个步骤。
+// 执行时间线中的一个步骤。
 export interface AgentUIEvent {
   id: string;
   type: string;
@@ -49,12 +50,13 @@ export interface ToolCallInfo {
   status: AgentEventStatus;
 }
 
-// 附加到 assistant 消息上的元数据，用于驱动时间线、计划卡片、工具卡片和 HITL 卡片。
+// 附加到助手消息上的元数据，用于驱动时间线、计划卡片、工具卡片和人工介入卡片。
 export interface AgentMessageMetadata {
   events: AgentUIEvent[];
   plan?: Plan;
   toolCalls: ToolCallInfo[];
   waitingForConfirm?: boolean;
+  streamStatus?: "streaming" | "completed" | "waiting" | "error" | "cancelled";
 }
 
 export interface ChatRequest {

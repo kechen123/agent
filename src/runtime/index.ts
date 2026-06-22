@@ -1,12 +1,9 @@
 import { HumanMessage } from "@langchain/core/messages";
 import { graph } from "./graph";
 import { getThreadConfig } from "./memory";
-import { registerBuiltinTools } from "../tools";
-import { registerBuiltinSkills } from "../skills";
+import { bootstrapRuntime } from "./bootstrap";
 
-// Register built-in tools & skills once at module load.
-registerBuiltinTools();
-registerBuiltinSkills();
+bootstrapRuntime();
 
 export { graph } from "./graph";
 export { AgentState, type AgentRuntimeState } from "./state";
@@ -20,13 +17,13 @@ export {
 export type { AgentStreamEvent } from "./events";
 
 /**
- * Start (or continue) a chat turn for a thread. Returns the raw LangGraph
- * streamEvents stream; callers should pass it through the stream adapter
- * (services/stream.ts) to get standardized AgentStreamEvent values.
+ * 为指定线程开始（或继续）一轮对话。返回原始 LangGraph streamEvents 流；
+ * 调用方应将其传给 stream adapter（services/stream.ts），
+ * 以得到标准化的 AgentStreamEvent 值。
  */
-export function startChatStream(threadId: string, message: string) {
+export function startChatStream(threadId: string, message: string, signal?: AbortSignal) {
   return graph.streamEvents(
     { messages: [new HumanMessage(message)] },
-    { ...getThreadConfig(threadId), version: "v2" },
+    { ...getThreadConfig(threadId), version: "v2", signal },
   );
 }

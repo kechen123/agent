@@ -5,7 +5,7 @@ import type { RegisteredTool } from "../types/agent";
 
 const registry = new Map<string, RegisteredTool>();
 
-/** Register a tool. Overwrites an existing tool with the same name. */
+/** 注册一个工具。同名工具会被覆盖。 */
 export function registerTool(tool: StructuredTool): void {
   registry.set(tool.name, {
     name: tool.name,
@@ -14,7 +14,7 @@ export function registerTool(tool: StructuredTool): void {
   });
 }
 
-/** Returns the registered tools, filtered by ENABLED_TOOLS if set. */
+/** 返回已注册工具；如果设置了 ENABLED_TOOLS，则按其过滤。 */
 export function getTools(): StructuredTool[] {
   const all = Array.from(registry.values()).map((t) => t.tool);
   const enabled = config.enabledTools;
@@ -22,7 +22,7 @@ export function getTools(): StructuredTool[] {
   return all.filter((t) => enabled.includes(t.name));
 }
 
-/** Returns tools by name — used to fetch a skill's allowed toolset. */
+/** 按名称返回工具，用于获取某个 skill 允许使用的工具集。 */
 export function getToolsByName(names?: string[]): StructuredTool[] {
   if (!names || names.length === 0) return getTools();
   const all = Array.from(registry.values()).map((t) => t.tool);
@@ -33,7 +33,7 @@ export function getRegisteredTools(): RegisteredTool[] {
   return Array.from(registry.values());
 }
 
-/** Build a ToolNode bound to the enabled tools. Used by the runtime graph. */
+/** 构建绑定了启用工具的 ToolNode，供 runtime graph 使用。 */
 export function createToolNode(): ToolNode {
   return new ToolNode(getTools());
 }

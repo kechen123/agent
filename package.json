@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx src/app.ts",
     "typecheck": "tsc --noEmit",
+    "verify:skills": "tsx scripts/verify-skills.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -25,6 +26,7 @@
     "@langchain/langgraph": "^1.4.2",
     "@langchain/openai": "^1.4.7",
     "dotenv": "^17.4.2",
+    "gray-matter": "^4.0.3",
     "hono": "^4.12.25",
     "zod": "^4.4.3"
   },

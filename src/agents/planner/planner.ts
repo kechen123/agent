@@ -6,6 +6,8 @@ import { model } from "../../services/llm";
 import type { Plan, HitlDecision } from "../../types/agent";
 import type { AgentRuntimeState } from "../../runtime/state";
 import type { AgentDefinition } from "../base";
+import { getConversationMessages } from "../../runtime/messages";
+import { skillPromptForState, withSkillPrompt } from "../../skills";
 
 export const PlanSchema = z.object({
   goal: z.string(),
@@ -42,43 +44,43 @@ const plannerModel = model.withStructuredOutput(PlanSchema, {
   method: "functionCalling",
 });
 
-const buildChain = () => {
+const buildChain = (systemPrompt: string) => {
   const prompt = ChatPromptTemplate.fromMessages([
-    ["system", SYSTEM_PROMPT],
+    ["system", systemPrompt],
     ["placeholder", "{messages}"],
   ]);
   return prompt.pipe(plannerModel);
 };
 
 /**
- * PlannerAgent — generates the plan and commits it to state.
+ * PlannerAgent — 生成计划并提交到状态中。
  *
- * NOTE: generation is split from the interrupt (see `planConfirmNode` below).
- * An interrupt always re-runs its node from the top on resume, so the expensive
- * LLM generation lives in THIS node (which completes and commits `plan`) while
- * the cheap interrupt lives in a separate node. This avoids regenerating the
- * plan when the user confirms/modifies.
+ * 注意：计划生成与 interrupt 分离（见下方 `planConfirmNode`）。
+ * interrupt 在恢复时总会从节点开头重新运行，因此昂贵的 LLM
+ * 计划生成放在本节点中（本节点会完成并提交 `plan`），便宜的
+ * interrupt 则放在单独节点中。这样可避免用户确认/修改时重新生成计划。
  */
 export const PlannerAgent: AgentDefinition = {
   name: "plannerAgent",
   description: "将复杂任务拆解为可执行步骤",
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
-    // If a plan already exists (re-entry after modify), keep it.
-    if (state.plan !== null) {
-      return { currentStep: 0 };
-    }
-    const chain = buildChain();
-    const res = await chain.invoke({ messages: state.messages });
-    const plan: Plan = { goal: res.goal, steps: res.steps };
+    const chain = buildChain(withSkillPrompt(SYSTEM_PROMPT, skillPromptForState(state)));
+    const res = await chain.invoke({ messages: getConversationMessages(state.messages) });
+    const plan: Plan = {
+      goal: res.goal.trim(),
+      steps: res.steps
+        .map((step, index) => ({ id: index + 1, task: step.task.trim() }))
+        .filter((step) => step.task.length > 0),
+    };
     console.log("[Planner] plan generated", plan);
     return { plan, currentStep: 0 };
   },
 };
 
 /**
- * planConfirmNode — pauses the graph to ask the user to confirm the plan.
- * On resume, `interrupt()` returns the user's HitlDecision.
+ * planConfirmNode — 暂停图执行，询问用户是否确认计划。
+ * 恢复执行时，`interrupt()` 会返回用户的 HitlDecision。
  */
 export async function planConfirmNode(
   state: AgentRuntimeState,
@@ -88,9 +90,9 @@ export async function planConfirmNode(
 }
 
 /**
- * modifyPlanNode — re-plans using the user's modification note.
- * Appends the note as a HumanMessage and clears the old plan so PlannerAgent
- * regenerates from scratch, then the graph loops back through planConfirm.
+ * modifyPlanNode — 根据用户的修改意见重新规划。
+ * 将修改意见作为 HumanMessage 追加，并清空旧计划，使 PlannerAgent
+ * 从头重新生成计划，然后图会回到 planConfirm。
  */
 export async function modifyPlanNode(
   state: AgentRuntimeState,
@@ -98,17 +100,19 @@ export async function modifyPlanNode(
   const note = state.decision?.message ?? "";
   return {
     plan: null,
+    currentStep: 0,
+    executionResults: [],
     decision: null,
     messages: [new HumanMessage(`用户修改意见：${note}`)],
   };
 }
 
-/** Conditional edge after the confirm interrupt. */
+/** 确认 interrupt 之后的条件边。 */
 export function routeAfterPlanner(state: AgentRuntimeState): "executor" | "modifyPlan" | "reply" {
   const action = state.decision?.action;
   if (action === "confirm") return "executor";
   if (action === "modify") return "modifyPlan";
-  return "reply"; // reject → reply with cancellation
+  return "reply"; // reject → 回复取消结果
 }
 
 export type PlanConfirmResult = { decision: HitlDecision };

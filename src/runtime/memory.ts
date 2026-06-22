@@ -1,8 +1,8 @@
 import { MemorySaver } from "@langchain/langgraph";
 
 /**
- * Single in-memory checkpoint store, shared by the compiled graph.
- * Conversation state is keyed by thread_id so each session is isolated.
+ * 单一内存 checkpoint 存储，由编译后的图共享。
+ * 对话状态以 thread_id 为键，确保每个会话相互隔离。
  */
 export const memory = new MemorySaver();
 

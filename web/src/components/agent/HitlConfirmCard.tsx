@@ -59,13 +59,13 @@ export function HitlConfirmCard({ actions }: { actions: AgentActions }) {
 
   if (mode === "modify") {
     return (
-      <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+      <section className="mt-4 rounded-2xl bg-amber-50 p-4">
         <div className="mb-3">
           <div className="text-sm font-semibold text-neutral-950">需要你的确认</div>
           <p className="mt-1 text-xs leading-5 text-neutral-600">告诉 Agent 你希望如何调整计划。</p>
         </div>
         <textarea
-          className="mb-3 max-h-40 min-h-24 w-full resize-y rounded-xl border border-neutral-300 bg-white p-3 text-sm leading-6 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+          className="mb-3 max-h-40 min-h-24 w-full resize-y rounded-xl bg-white p-3 text-sm leading-6 text-neutral-900 shadow-sm outline-none transition placeholder:text-neutral-400 focus:ring-2 focus:ring-amber-200 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
           rows={3}
           value={note}
           onChange={(event) => setNote(event.target.value)}
@@ -83,7 +83,7 @@ export function HitlConfirmCard({ actions }: { actions: AgentActions }) {
           </button>
           <button
             type="button"
-            className="h-9 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-9 rounded-xl bg-white px-4 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => setMode("idle")}
             disabled={disabled}
           >
@@ -95,7 +95,7 @@ export function HitlConfirmCard({ actions }: { actions: AgentActions }) {
   }
 
   return (
-    <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+    <section className="mt-4 rounded-2xl bg-amber-50 p-4">
       <div className="mb-3">
         <div className="text-sm font-semibold text-neutral-950">需要你的确认</div>
         <p className="mt-1 text-xs leading-5 text-neutral-600">确认后 Agent 将按上方计划继续执行。</p>
@@ -111,7 +111,7 @@ export function HitlConfirmCard({ actions }: { actions: AgentActions }) {
         </button>
         <button
           type="button"
-          className="h-9 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 rounded-xl bg-white px-4 text-sm font-medium text-neutral-700 shadow-sm transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => setMode("modify")}
           disabled={disabled}
         >

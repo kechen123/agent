@@ -3,14 +3,15 @@ import { ChatPromptTemplate } from "@langchain/core/prompts";
 import type { PlanStep } from "../../types/agent";
 import type { AgentRuntimeState } from "../../runtime/state";
 import type { AgentDefinition } from "../base";
+import { skillPromptForState, withSkillPrompt } from "../../skills";
 
 const SYSTEM_PROMPT = `你是一个任务执行器（Executor Agent）。
 你会收到当前要执行的步骤以及之前的执行结果。
 请用一句话简明描述该步骤的执行结果，不要编造未发生的事情，不要调用工具。`;
 
-const buildChain = () => {
+const buildChain = (systemPrompt: string) => {
   const prompt = ChatPromptTemplate.fromMessages([
-    ["system", SYSTEM_PROMPT],
+    ["system", systemPrompt],
     [
       "human",
       `目标：{goal}
@@ -24,9 +25,9 @@ const buildChain = () => {
 };
 
 /**
- * ExecutorAgent — advances the plan one step at a time.
- * Each invocation executes plan.steps[currentStep] and appends a result.
- * The graph drives multiple passes until the plan is exhausted.
+ * ExecutorAgent — 每次推进计划中的一个步骤。
+ * 每次调用都会执行 plan.steps[currentStep]，并追加一条执行结果。
+ * 图会驱动多轮执行，直到计划全部完成。
  */
 export const ExecutorAgent: AgentDefinition = {
   name: "executorAgent",
@@ -51,10 +52,10 @@ export const ExecutorAgent: AgentDefinition = {
       };
     }
 
-    // Use the LLM to summarize the step's outcome (kept minimal/deterministic).
+    // 使用 LLM 总结当前步骤的执行结果（保持尽量简短、确定）。
     let result: string;
     try {
-      const chain = buildChain();
+      const chain = buildChain(withSkillPrompt(SYSTEM_PROMPT, skillPromptForState(state)));
       const res = await chain.invoke({
         goal: plan.goal,
         stepId: String(step.id),
@@ -67,13 +68,13 @@ export const ExecutorAgent: AgentDefinition = {
     }
 
     return {
-      executionResults: [result],
+      executionResults: [...state.executionResults, result],
       currentStep: currentStep + 1,
     };
   },
 };
 
-/** Conditional edge: keep executing until steps are exhausted, then reply. */
+/** 条件边：持续执行直到步骤耗尽，然后进入回复。 */
 export function routeAfterExecutor(state: AgentRuntimeState): "executor" | "reply" {
   const plan = state.plan;
   if (!plan || !plan.steps?.length) return "reply";

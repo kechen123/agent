@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const getWeather = tool(
   async ({ city }: { city: string }) => {
-    // ★ Mock weather data — replace with a real API call in production.
+    // ★ 模拟天气数据，生产环境请替换为真实 API 调用。
     const mockWeather: Record<string, string> = {
       北京: "晴，25°C，湿度 40%，西北风 3 级",
       上海: "多云，28°C，湿度 65%，东南风 2 级",

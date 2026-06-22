@@ -21,7 +21,7 @@ export function EmptyState({ onPickSuggestion }: EmptyStateProps) {
             key={suggestion}
             type="button"
             onClick={() => onPickSuggestion(suggestion)}
-            className="min-w-0 rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-left text-sm leading-5 text-neutral-700 transition hover:border-neutral-300 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+            className="min-w-0 rounded-2xl bg-neutral-100 px-4 py-3 text-left text-sm leading-5 text-neutral-700 transition hover:bg-neutral-200 focus:outline-none focus:ring-2 focus:ring-neutral-300"
           >
             {suggestion}
           </button>

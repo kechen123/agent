@@ -4,13 +4,13 @@ import { graph } from "./graph";
 import { getThreadConfig } from "./memory";
 import type { HitlDecision, Plan } from "../types/agent";
 
-/** Returns true if the thread is paused inside a HITL interrupt. */
+/** 如果线程暂停在 HITL interrupt 中，则返回 true。 */
 export function isWaitingForConfirm(snapshot: StateSnapshot): boolean {
   if (!snapshot.next || snapshot.next.length === 0) return false;
   return (snapshot.tasks ?? []).some((t) => (t.interrupts ?? []).length > 0);
 }
 
-/** Extract the plan surfaced by the planner's interrupt, if waiting. */
+/** 如果正在等待确认，则提取 planner interrupt 暴露出的计划。 */
 export function getInterruptPlan(snapshot: StateSnapshot): Plan | null {
   for (const task of snapshot.tasks ?? []) {
     for (const intr of task.interrupts ?? []) {
@@ -27,13 +27,14 @@ export async function getSnapshot(threadId: string): Promise<StateSnapshot> {
 }
 
 /**
- * Resume a paused thread with the user's HITL decision.
- * Returns the graph event stream — the caller (stream adapter) consumes it.
+ * 使用用户的 HITL 决策恢复暂停中的线程。
+ * 返回图事件流，由调用方（stream adapter）消费。
  */
-export function resumeStream(threadId: string, decision: HitlDecision) {
+export function resumeStream(threadId: string, decision: HitlDecision, signal?: AbortSignal) {
   return graph.streamEvents(new Command({ resume: decision }), {
     ...getThreadConfig(threadId),
     version: "v2",
+    signal,
   });
 }
 
