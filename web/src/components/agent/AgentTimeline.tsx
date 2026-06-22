@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { AgentUIEvent } from "../../types/agent-ui";
 
 const STATUS_LABEL: Record<AgentUIEvent["status"], string> = {
@@ -7,49 +8,74 @@ const STATUS_LABEL: Record<AgentUIEvent["status"], string> = {
 };
 
 const STATUS_DOT: Record<AgentUIEvent["status"], string> = {
-  running: "border-indigo-200 bg-white text-indigo-500",
-  done: "border-emerald-100 bg-emerald-50 text-emerald-600",
-  error: "border-red-100 bg-red-50 text-red-600",
+  running: "bg-neutral-400 animate-pulse",
+  done: "bg-emerald-500",
+  error: "bg-red-500",
 };
 
-function StatusIcon({ status }: { status: AgentUIEvent["status"] }) {
-  if (status === "running") {
-    return <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-500" />;
-  }
+function getSummary(events: AgentUIEvent[]) {
+  const running = events.find((event) => event.status === "running");
+  const failed = events.find((event) => event.status === "error");
 
-  if (status === "error") {
-    return <span className="text-xs font-semibold">!</span>;
-  }
+  if (running) return running.title.startsWith("任务") ? "正在规划…" : `${running.title}…`;
+  if (failed) return failed.description ? `执行失败：${failed.description}` : "执行失败";
 
-  return <span className="text-xs font-semibold">✓</span>;
+  const visibleDone = events.filter((event) => event.status === "done" && !event.type.startsWith("router"));
+  const count = visibleDone.length || events.filter((event) => event.status === "done").length;
+  return `已完成 ${count} 个步骤`;
 }
 
 export function AgentTimeline({ events }: { events: AgentUIEvent[] }) {
+  const [open, setOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const hasRunning = events.some((event) => event.status === "running");
+  const summary = useMemo(() => getSummary(events), [events]);
+
+  useEffect(() => {
+    if (manualOpen !== null) return;
+    setOpen(hasRunning);
+  }, [hasRunning, manualOpen]);
+
   if (events.length === 0) return null;
+
+  const handleToggle = () => {
+    setOpen((current) => {
+      const next = !current;
+      setManualOpen(next);
+      return next;
+    });
+  };
+
   return (
-    <div className="mb-3 rounded-[18px] border border-neutral-200 bg-white p-3 shadow-sm shadow-neutral-200/60">
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold text-neutral-900">执行过程</div>
-        <div className="text-[11px] text-neutral-400">{events.length} 个事件</div>
-      </div>
-      <ol className="space-y-2">
-        {events.map((ev) => (
-          <li key={ev.id} className="flex items-start gap-3 rounded-2xl px-1 py-1.5">
-            <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${STATUS_DOT[ev.status]}`}>
-              <StatusIcon status={ev.status} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-neutral-900">{ev.title}</span>
-                <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
-                  {STATUS_LABEL[ev.status]}
-                </span>
+    <div className="rounded-2xl border border-neutral-200 bg-white/60 text-xs text-neutral-600">
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300"
+      >
+        <span className={`h-2 w-2 shrink-0 rounded-full ${hasRunning ? STATUS_DOT.running : "bg-neutral-300"}`} />
+        <span className="min-w-0 flex-1 truncate font-medium text-neutral-700">{summary}</span>
+        <span className="text-neutral-400">{open ? "收起" : "展开"}</span>
+      </button>
+
+      {open && (
+        <ol className="divide-y divide-neutral-100 border-t border-neutral-100">
+          {events.map((event) => (
+            <li key={event.id} className="flex min-w-0 items-start gap-2 px-3 py-2">
+              <span className={`mt-2 h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[event.status]}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <span className="font-medium text-neutral-800">{event.title}</span>
+                  <span className="text-[11px] text-neutral-400">{STATUS_LABEL[event.status]}</span>
+                </div>
+                {event.description && (
+                  <p className="mt-0.5 break-words text-[11px] leading-5 text-neutral-500">{event.description}</p>
+                )}
               </div>
-              {ev.description && <p className="mt-0.5 truncate text-xs leading-5 text-neutral-500">{ev.description}</p>}
-            </div>
-          </li>
-        ))}
-      </ol>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

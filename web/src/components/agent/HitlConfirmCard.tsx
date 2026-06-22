@@ -1,70 +1,131 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AgentActions } from "../../app/agentActions";
 
+type Mode = "idle" | "modify";
+type PendingAction = "confirm" | "reject" | "modify" | null;
+
 export function HitlConfirmCard({ actions }: { actions: AgentActions }) {
-  const [mode, setMode] = useState<"idle" | "modify">("idle");
+  const [mode, setMode] = useState<Mode>("idle");
   const [note, setNote] = useState("");
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [sawRunning, setSawRunning] = useState(false);
+
+  const disabled = Boolean(pendingAction) || actions.isRunning;
+  const canSubmitModify = note.trim().length > 0 && !disabled;
+
+  useEffect(() => {
+    if (!pendingAction) {
+      setSawRunning(false);
+      return;
+    }
+
+    if (actions.isRunning) {
+      setSawRunning(true);
+      return;
+    }
+
+    if (sawRunning) {
+      setPendingAction(null);
+      setSawRunning(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setPendingAction(null);
+      setSawRunning(false);
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [actions.isRunning, pendingAction, sawRunning]);
+
+  const submitConfirm = () => {
+    if (disabled) return;
+    setPendingAction("confirm");
+    actions.resume("confirm");
+  };
+
+  const submitReject = () => {
+    if (disabled) return;
+    setPendingAction("reject");
+    actions.resume("reject");
+  };
+
+  const submitModify = () => {
+    const message = note.trim();
+    if (!message || disabled) return;
+    setPendingAction("modify");
+    actions.resume("modify", message);
+  };
 
   if (mode === "modify") {
     return (
-      <div className="mb-3 rounded-[20px] border border-amber-200 bg-amber-50/70 p-4 shadow-sm shadow-amber-100/60">
-        <div className="mb-3 text-sm font-semibold text-neutral-900">请输入修改意见</div>
+      <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="mb-3">
+          <div className="text-sm font-semibold text-neutral-950">需要你的确认</div>
+          <p className="mt-1 text-xs leading-5 text-neutral-600">告诉 Agent 你希望如何调整计划。</p>
+        </div>
         <textarea
-          className="mb-3 w-full resize-none rounded-2xl border border-neutral-200 bg-white p-3 text-sm leading-6 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
+          className="mb-3 max-h-40 min-h-24 w-full resize-y rounded-xl border border-neutral-300 bg-white p-3 text-sm leading-6 text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-neutral-500 focus:ring-2 focus:ring-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
           rows={3}
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={(event) => setNote(event.target.value)}
           placeholder="例如：把第二步改成先检查当前文件结构。"
+          disabled={disabled}
         />
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="h-9 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 text-sm font-medium text-white shadow-sm shadow-indigo-200 transition hover:-translate-y-0.5 hover:from-indigo-500 hover:to-violet-500 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-            onClick={() => actions.resume("modify", note)}
+            className="h-9 rounded-xl bg-neutral-900 px-4 text-sm font-medium text-white transition hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 disabled:cursor-not-allowed disabled:bg-neutral-300"
+            onClick={submitModify}
+            disabled={!canSubmitModify}
           >
-            提交修改
+            {pendingAction === "modify" ? "提交中…" : "提交修改"}
           </button>
           <button
             type="button"
-            className="h-9 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+            className="h-9 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
             onClick={() => setMode("idle")}
+            disabled={disabled}
           >
             返回
           </button>
         </div>
-      </div>
+      </section>
     );
   }
 
   return (
-    <div className="mb-3 rounded-[20px] border border-amber-200 bg-amber-50/70 p-4 shadow-sm shadow-amber-100/60">
+    <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
       <div className="mb-3">
-        <div className="text-sm font-semibold text-neutral-900">是否执行该计划？</div>
-        <div className="mt-1 text-xs leading-5 text-neutral-600">确认后 Agent 将按上方步骤继续执行。</div>
+        <div className="text-sm font-semibold text-neutral-950">需要你的确认</div>
+        <p className="mt-1 text-xs leading-5 text-neutral-600">确认后 Agent 将按上方计划继续执行。</p>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          className="h-9 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 text-sm font-medium text-white shadow-sm shadow-indigo-200 transition hover:-translate-y-0.5 hover:from-indigo-500 hover:to-violet-500 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
-          onClick={() => actions.resume("confirm")}
+          className="h-9 rounded-xl bg-neutral-900 px-4 text-sm font-medium text-white transition hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 disabled:cursor-not-allowed disabled:bg-neutral-300"
+          onClick={submitConfirm}
+          disabled={disabled}
         >
-          确认执行
+          {pendingAction === "confirm" ? "执行中…" : "确认执行"}
         </button>
         <button
           type="button"
-          className="h-9 rounded-xl border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-indigo-400/30"
+          className="h-9 rounded-xl border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-neutral-300 disabled:cursor-not-allowed disabled:opacity-60"
           onClick={() => setMode("modify")}
+          disabled={disabled}
         >
           修改计划
         </button>
         <button
           type="button"
-          className="h-9 rounded-xl px-4 text-sm font-medium text-red-600 transition hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200"
-          onClick={() => actions.resume("reject")}
+          className="h-9 rounded-xl px-3 text-sm font-medium text-red-600 transition hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={submitReject}
+          disabled={disabled}
         >
-          取消任务
+          {pendingAction === "reject" ? "取消中…" : "取消任务"}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
