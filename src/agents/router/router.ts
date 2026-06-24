@@ -48,8 +48,14 @@ export const RouterAgent: AgentDefinition = {
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
     if (state.ragMode) {
-      console.log("[Router]", { route: "tool", skillName: null, ragMode: true });
-      return { route: "tool", skillName: null };
+      const route = state.ragStrategy === "reuse" ? "chat" : "tool";
+      console.log("[Router]", {
+        route,
+        skillName: null,
+        ragMode: true,
+        ragStrategy: state.ragStrategy,
+      });
+      return { route, skillName: null };
     }
 
     const chain = buildChain();

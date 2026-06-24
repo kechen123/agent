@@ -18,6 +18,8 @@ export const BeginTurnAgent: AgentDefinition = {
     return {
       request: messageText(getLatestHumanMessage(state.messages)),
       ragMode: state.ragMode === true,
+      ragStrategy: state.ragStrategy,
+      ragContext: state.ragContext,
       route: "",
       plan: null,
       currentStep: 0,

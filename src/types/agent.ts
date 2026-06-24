@@ -4,6 +4,7 @@ import type { BaseMessage } from "@langchain/core/messages";
 // ─── 路由 ────────────────────────────────────────────────────────────────────
 
 export type Route = "chat" | "tool" | "plan" | "execute";
+export type RagStrategy = "search" | "reuse";
 
 // ─── 计划 ────────────────────────────────────────────────────────────────────
 
@@ -73,6 +74,10 @@ export interface AgentStateValue {
   request: string;
   /** 当前轮是否强制走知识库向量检索模式。 */
   ragMode: boolean;
+  /** RAG 模式下是重新检索，还是复用上一轮检索片段。 */
+  ragStrategy: RagStrategy;
+  /** 复用上一轮检索片段时使用的原始知识库上下文。 */
+  ragContext: string;
   route: Route | "";
   plan: Plan | null;
   currentStep: number;

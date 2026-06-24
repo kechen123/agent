@@ -3,6 +3,7 @@ import { graph } from "./graph";
 import { getThreadConfig } from "./memory";
 import { bootstrapRuntime } from "./bootstrap";
 import { getThreadUser, withActiveToolUser } from "./user-context";
+import type { RagStrategy } from "../types/agent";
 
 bootstrapRuntime();
 
@@ -26,11 +27,16 @@ export async function* startChatStream(
   threadId: string,
   message: string,
   signal?: AbortSignal,
-  options?: { ragMode?: boolean },
+  options?: { ragMode?: boolean; ragStrategy?: RagStrategy; ragContext?: string },
 ) {
   const userId = getThreadUser(threadId);
   const events = graph.streamEvents(
-    { messages: [new HumanMessage(message)], ragMode: options?.ragMode === true },
+    {
+      messages: [new HumanMessage(message)],
+      ragMode: options?.ragMode === true,
+      ragStrategy: options?.ragStrategy ?? "search",
+      ragContext: options?.ragContext ?? "",
+    },
     { ...getThreadConfig(threadId, userId), version: "v2", signal },
   );
 

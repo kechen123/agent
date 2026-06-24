@@ -1,6 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import { BaseMessage, SystemMessage } from "@langchain/core/messages";
-import type { Plan, Route, HitlDecision, ReflectionResult } from "../types/agent";
+import type { Plan, Route, RagStrategy, HitlDecision, ReflectionResult } from "../types/agent";
 import { config } from "../config";
 
 /**
@@ -30,6 +30,14 @@ export const AgentState = Annotation.Root({
   ragMode: Annotation<boolean>({
     reducer: (_oldValue, newValue) => newValue,
     default: () => false,
+  }),
+  ragStrategy: Annotation<RagStrategy>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => "search",
+  }),
+  ragContext: Annotation<string>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => "",
   }),
   route: Annotation<Route | "">({
     reducer: (_oldValue, newValue) => newValue,
