@@ -13,7 +13,7 @@ function summaryOf(metadata: AgentMessageMetadata): string {
   if (metadata.waitingForConfirm) return "计划已就绪，等待确认";
 
   const runningTool = metadata.toolCalls.find((call) => call.status === "running");
-  if (runningTool) return `正在使用 ${runningTool.toolName}`;
+  if (runningTool) return `正在${toolDisplayName(runningTool.toolName)}`;
 
   const runningEvent = metadata.events.find((event) => event.status === "running");
   if (runningEvent) return runningEvent.title;
@@ -29,6 +29,12 @@ function summaryOf(metadata: AgentMessageMetadata): string {
   if (metadata.toolCalls.length > 0) return `已完成 ${metadata.toolCalls.length} 次工具调用`;
   if (metadata.plan) return "计划已生成";
   return "已完成处理";
+}
+
+function toolDisplayName(toolName: string): string {
+  if (toolName === "searchKnowledge") return "检索知识库";
+  if (toolName === "getWeather") return "查询天气";
+  return `使用 ${toolName}`;
 }
 
 function formatValue(value: unknown): string {
@@ -186,8 +192,8 @@ export function AgentWorkDetails({ metadata }: { metadata: AgentMessageMetadata 
                 <details key={call.id} className="group">
                   <summary className="flex cursor-pointer list-none items-center gap-2 text-sm text-neutral-600">
                     <span className={`h-2 w-2 rounded-full ${STATUS_DOT[call.status]}`} />
-                    <span className="font-mono text-xs font-medium text-neutral-700">
-                      {call.toolName}
+                    <span className="text-sm font-medium text-neutral-700">
+                      {toolDisplayName(call.toolName)}
                     </span>
                     <span className="text-xs text-neutral-400">
                       {call.status === "running"

@@ -42,6 +42,46 @@ function textOf(chunk: unknown): string {
   return typeof c?.content === "string" ? c.content : "";
 }
 
+function messageContentOf(message: unknown): string {
+  const value = message as { content?: unknown } | null;
+  if (!value) return "";
+  if (typeof value.content === "string") return value.content;
+  if (!Array.isArray(value.content)) return "";
+  return value.content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && typeof part === "object" && "text" in part) {
+        return String((part as { text?: unknown }).text ?? "");
+      }
+      return "";
+    })
+    .join("");
+}
+
+function replyContentOf(out: Record<string, unknown> | undefined): string {
+  const messages = out?.messages;
+  if (!Array.isArray(messages)) return "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as { name?: unknown; lc_kwargs?: { name?: unknown } };
+    const name =
+      typeof message.name === "string"
+        ? message.name
+        : typeof message.lc_kwargs?.name === "string"
+          ? message.lc_kwargs.name
+          : "";
+    const content = messageContentOf(message);
+    if (content && (!name || name === "replyAgent")) return content;
+  }
+  return "";
+}
+
+function polishReplyText(text: string): string {
+  return text
+    .replace(/^(?:根据(?:查询结果|知识库信息|提供的信息|检索结果)[，,：:\s]*)+/u, "")
+    .replace(/\n(?:根据(?:查询结果|知识库信息|提供的信息|检索结果)[，,：:\s]*)/gu, "\n")
+    .trimStart();
+}
+
 /** 把不同来源的异常统一转换为可以安全发送给前端的文本。 */
 function errorMessageOf(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -72,6 +112,7 @@ export async function* adaptStream(
   let messageBuffer = "";
   let currentPlan: Plan | null = null;
   let replied = false;
+  let replyContentEmitted = false;
   let finalStatus: "completed" | "waiting" = "completed";
 
   // 从 checkpoint 中预填计划，这样 resume 流（planner:end 不会重新触发）
@@ -149,6 +190,14 @@ export async function* adaptStream(
                 typeof out?.retryCount === "number" ? (out.retryCount as number) : 0,
             };
           }
+        } else if (node === "reply" && !replyContentEmitted) {
+          const content = polishReplyText(replyContentOf(out));
+          if (content) {
+            yield { type: "message:end", content };
+            messageBuffer = "";
+            replied = false;
+            replyContentEmitted = true;
+          }
         }
         continue;
       }
@@ -196,19 +245,21 @@ export async function* adaptStream(
 
       if (kind === "on_chat_model_end" && node === "reply") {
         if (replied) {
-          yield { type: "message:end", content: messageBuffer };
+          yield { type: "message:end", content: polishReplyText(messageBuffer) };
           messageBuffer = "";
           replied = false;
+          replyContentEmitted = true;
         }
         continue;
       }
     }
 
     // 如果漏掉了模型结束事件，则补刷尾部消息。
-    if (replied) {
-      yield { type: "message:end", content: messageBuffer };
+    if (replied && !replyContentEmitted) {
+      yield { type: "message:end", content: polishReplyText(messageBuffer) };
       messageBuffer = "";
       replied = false;
+      replyContentEmitted = true;
     }
 
     // ── HITL：流稳定后检测暂停中的线程 ─────────────────────────────

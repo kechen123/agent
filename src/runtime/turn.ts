@@ -17,6 +17,9 @@ export const BeginTurnAgent: AgentDefinition = {
   async invoke(state) {
     return {
       request: messageText(getLatestHumanMessage(state.messages)),
+      ragMode: state.ragMode === true,
+      ragStrategy: state.ragStrategy,
+      ragContext: state.ragContext,
       route: "",
       plan: null,
       currentStep: 0,

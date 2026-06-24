@@ -16,6 +16,9 @@ function state(overrides: Partial<AgentRuntimeState> = {}): AgentRuntimeState {
   return {
     messages: [],
     request: "验证 Agent Loop",
+    ragMode: false,
+    ragStrategy: "search",
+    ragContext: "",
     route: "plan",
     plan: {
       goal: "验证 Agent Loop",

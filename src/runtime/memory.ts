@@ -6,6 +6,11 @@ import { MemorySaver } from "@langchain/langgraph";
  */
 export const memory = new MemorySaver();
 
-export function getThreadConfig(threadId: string) {
-  return { configurable: { thread_id: threadId } };
+export function getThreadConfig(threadId: string, userId?: string) {
+  return {
+    configurable: {
+      thread_id: threadId,
+      ...(userId ? { user_id: userId } : {}),
+    },
+  };
 }

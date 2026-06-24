@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { UiMessage } from "../../hooks/useAgentRuntime";
 import { AssistantMessage } from "./AssistantMessage";
-import { Composer, type ComposerHandle } from "./Composer";
-import { EmptyState } from "./EmptyState";
+import { Composer, type ComposerHandle, type KnowledgeMode } from "./Composer";
 
 interface ChatViewProps {
   title: string;
@@ -10,7 +9,7 @@ interface ChatViewProps {
   isRunning: boolean;
   onOpenMenu: () => void;
   onNewThread: () => void;
-  onSend: (message: string) => void;
+  onSend: (message: string, mode: KnowledgeMode) => void;
   onCancel: () => void;
   enabledSkillsCount: number;
   onOpenSkills: () => void;
@@ -30,6 +29,7 @@ export function ChatView({
   onOpenSkills,
 }: ChatViewProps) {
   const [draft, setDraft] = useState("");
+  const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>("auto");
   const [isNearBottom, setIsNearBottom] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -61,15 +61,12 @@ export function ChatView({
     const text = draft.trim();
     if (!text || isRunning) return;
     followOutputRef.current = true;
-    onSend(text);
+    onSend(text, knowledgeMode);
     setDraft("");
     requestAnimationFrame(() => scrollToBottom("smooth"));
   };
 
-  const handlePickSuggestion = (text: string) => {
-    setDraft(text);
-    requestAnimationFrame(() => composerRef.current?.focus());
-  };
+  const isEmpty = messages.length === 0;
 
   return (
     <section className="flex h-[100dvh] min-w-0 flex-col overflow-hidden bg-white">
@@ -79,11 +76,13 @@ export function ChatView({
             type="button"
             onClick={onOpenMenu}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 md:hidden"
-            aria-label="打开会话列表"
+            aria-label="打开导航菜单"
           >
             ☰
           </button>
-          <h1 className="truncate text-sm font-semibold text-neutral-950 sm:text-base">{title || "新会话"}</h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-neutral-950 sm:text-base">{title || "新会话"}</h1>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -91,7 +90,7 @@ export function ChatView({
             onClick={onOpenSkills}
             className="hidden rounded-full bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-950 focus:outline-none focus:ring-2 focus:ring-neutral-300 sm:inline-flex"
           >
-            已启用 {enabledSkillsCount} 个 Skills
+            {enabledSkillsCount} 个 Skills
           </button>
           <button
             type="button"
@@ -104,11 +103,31 @@ export function ChatView({
       </header>
 
       <div ref={scrollRef} onScroll={updateNearBottom} className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col gap-8 px-3 py-8 sm:px-6">
-          {messages.length === 0 ? (
-            <EmptyState onPickSuggestion={handlePickSuggestion} />
-          ) : (
-            messages.map((message) =>
+        {isEmpty ? (
+          <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col items-center justify-center gap-6 px-3 py-8 sm:px-6">
+            <div className="space-y-2 text-center">
+              <h2 className="text-2xl font-semibold tracking-tight text-neutral-950 sm:text-3xl">
+                今天想让 Agent 做什么？
+              </h2>
+              <p className="text-sm text-neutral-500">
+                直接提问即可；默认会在需要时自动检索知识库，不必记住 /rag。
+              </p>
+            </div>
+            <Composer
+              ref={composerRef}
+              value={draft}
+              isRunning={isRunning}
+              knowledgeMode={knowledgeMode}
+              onKnowledgeModeChange={setKnowledgeMode}
+              onChange={setDraft}
+              onSend={handleSend}
+              onCancel={onCancel}
+              mode="center"
+            />
+          </div>
+        ) : (
+          <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col gap-8 px-3 py-8 sm:px-6">
+            {messages.map((message) =>
               message.role === "user" ? (
                 <div key={message.id} className="flex w-full justify-end">
                   <div className="max-w-[min(82%,36rem)] whitespace-pre-wrap break-words rounded-[22px] bg-[#f4f4f4] px-4 py-2.5 text-[15px] leading-6 text-neutral-900 sm:max-w-[72%]">
@@ -118,10 +137,10 @@ export function ChatView({
               ) : (
                 <AssistantMessage key={message.id} message={message} />
               ),
-            )
-          )}
-          <div ref={bottomRef} />
-        </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        )}
 
         {!isNearBottom && messages.length > 0 && (
           <button
@@ -134,14 +153,18 @@ export function ChatView({
         )}
       </div>
 
-      <Composer
-        ref={composerRef}
-        value={draft}
-        isRunning={isRunning}
-        onChange={setDraft}
-        onSend={handleSend}
-        onCancel={onCancel}
-      />
+      {!isEmpty && (
+        <Composer
+          ref={composerRef}
+          value={draft}
+          isRunning={isRunning}
+          knowledgeMode={knowledgeMode}
+          onKnowledgeModeChange={setKnowledgeMode}
+          onChange={setDraft}
+          onSend={handleSend}
+          onCancel={onCancel}
+        />
+      )}
     </section>
   );
 }

@@ -25,6 +25,8 @@ interface ActiveRun {
   assistantId: string;
 }
 
+type ChatMode = "auto" | "chat" | "rag";
+
 const EMPTY_META: AgentMessageMetadata = {
   events: [],
   toolCalls: [],
@@ -39,7 +41,22 @@ function emptyMeta(streamStatus: AgentMessageMetadata["streamStatus"] = "complet
   return { events: [], toolCalls: [], streamStatus };
 }
 
-export function useAgentRuntime() {
+function parseOutgoingMessage(
+  text: string,
+  selectedMode: ChatMode,
+): { message: string; display: string; mode: ChatMode } | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const ragCommand = /^\/rag(?:\s+|$)/i.exec(trimmed);
+  if (!ragCommand) return { message: trimmed, display: trimmed, mode: selectedMode };
+
+  const question = trimmed.slice(ragCommand[0].length).trim();
+  if (!question) return null;
+  return { message: question, display: question, mode: "rag" };
+}
+
+export function useAgentRuntime(token: string | null) {
   const [threads, setThreads] = useState<ThreadState[]>([
     { id: "t-1", title: "新会话", messages: [] },
   ]);
@@ -283,6 +300,7 @@ export function useAgentRuntime() {
       controller = openAgentStream(
         url,
         body,
+        token,
         (event) => {
           if (event.type === "stream:end") terminalEventReceived = true;
           applyEvent(threadId, assistantId, event);
@@ -305,18 +323,18 @@ export function useAgentRuntime() {
       activeRunsRef.current.set(threadId, { controller, assistantId });
       return controller;
     },
-    [applyEvent, setThreadRunning],
+    [applyEvent, setThreadRunning, token],
   );
 
   const sendMessage = useCallback(
-    (text: string) => {
-      const message = text.trim();
-      if (!message || activeRunsRef.current.has(currentThreadId)) return;
+    (text: string, mode: ChatMode = "auto") => {
+      const parsed = parseOutgoingMessage(text, mode);
+      if (!parsed || activeRunsRef.current.has(currentThreadId)) return;
 
       const userMessage: UiMessage = {
         id: nextId(),
         role: "user",
-        content: message,
+        content: parsed.display,
         metadata: emptyMeta(),
       };
       const assistantMessage: UiMessage = {
@@ -328,13 +346,13 @@ export function useAgentRuntime() {
 
       updateThread(currentThreadId, (thread) => ({
         ...thread,
-        title: thread.messages.length === 0 ? message.slice(0, 24) : thread.title,
+        title: thread.messages.length === 0 ? parsed.display.slice(0, 24) : thread.title,
         messages: [...thread.messages, userMessage, assistantMessage],
       }));
 
       startStream(
         "/chat",
-        { threadId: currentThreadId, message },
+        { threadId: currentThreadId, message: parsed.message, mode: parsed.mode },
         currentThreadId,
         assistantMessage.id,
       );

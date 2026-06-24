@@ -1,6 +1,6 @@
 import { Annotation } from "@langchain/langgraph";
 import { BaseMessage, SystemMessage } from "@langchain/core/messages";
-import type { Plan, Route, HitlDecision, ReflectionResult } from "../types/agent";
+import type { Plan, Route, RagStrategy, HitlDecision, ReflectionResult } from "../types/agent";
 import { config } from "../config";
 
 /**
@@ -24,6 +24,18 @@ export const AgentState = Annotation.Root({
    * 计划修改会向 messages 追加内部 HumanMessage，因此 Reply 不能再简单取最后一条 HumanMessage。
    */
   request: Annotation<string>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => "",
+  }),
+  ragMode: Annotation<boolean>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => false,
+  }),
+  ragStrategy: Annotation<RagStrategy>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => "search",
+  }),
+  ragContext: Annotation<string>({
     reducer: (_oldValue, newValue) => newValue,
     default: () => "",
   }),
