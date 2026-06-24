@@ -18,7 +18,7 @@ const RouteSchema = z.object({
 
 const SYSTEM_PROMPT = `你是一个智能路由分析器。分析用户的最新消息，判断其意图类型：
 - chat    → 日常闲聊、问候、寒暄、情感表达
-- tool    → 需要调用工具（查询天气等明确需要外部数据或执行操作的任务）
+- tool    → 需要调用工具（查询天气、知识库检索等明确需要外部数据或执行操作的任务）
 - plan    → 需要规划任务（将复杂任务拆解为多个可执行步骤）
 - execute → 需要执行任务（已经有明确的执行计划，正在执行中）
 
@@ -47,6 +47,11 @@ export const RouterAgent: AgentDefinition = {
   description: "分析用户意图并选择路由与 skill",
   systemPrompt: SYSTEM_PROMPT,
   async invoke(state) {
+    if (state.ragMode) {
+      console.log("[Router]", { route: "tool", skillName: null, ragMode: true });
+      return { route: "tool", skillName: null };
+    }
+
     const chain = buildChain();
     const res = await chain.invoke({
       latestMessage: messageText(getLatestHumanMessage(state.messages)),

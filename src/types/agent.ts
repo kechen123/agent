@@ -71,6 +71,8 @@ export interface AgentStateValue {
   messages: BaseMessage[];
   /** 当前轮最初的用户请求，不受内部追加消息影响。 */
   request: string;
+  /** 当前轮是否强制走知识库向量检索模式。 */
+  ragMode: boolean;
   route: Route | "";
   plan: Plan | null;
   currentStep: number;
@@ -94,6 +96,7 @@ export interface AgentStateValue {
 export interface ChatRequest {
   threadId: string;
   message: string;
+  mode?: "auto" | "chat" | "rag";
 }
 
 export interface ResumeRequest {

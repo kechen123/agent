@@ -5,22 +5,32 @@ interface MobileSidebarProps {
   open: boolean;
   threads: { id: string; title: string }[];
   currentThreadId: string;
+  activeSurface: "chat" | "knowledge";
   onSelect: (id: string) => void;
   onNew: () => void;
   onClose: () => void;
   enabledSkillsCount: number;
   onOpenSkills: () => void;
+  onOpenKnowledge: () => void;
+  knowledgeCount: number | null;
+  user: { email: string; name: string | null };
+  onLogout: () => void;
 }
 
 export function MobileSidebar({
   open,
   threads,
   currentThreadId,
+  activeSurface,
   onSelect,
   onNew,
   onClose,
   enabledSkillsCount,
   onOpenSkills,
+  onOpenKnowledge,
+  knowledgeCount,
+  user,
+  onLogout,
 }: MobileSidebarProps) {
   useEffect(() => {
     if (!open) return;
@@ -41,27 +51,17 @@ export function MobileSidebar({
 
   if (!open) return null;
 
-  const handleNew = () => {
-    onNew();
-    onClose();
-  };
-
-  const handleOpenSkills = () => {
-    onOpenSkills();
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="会话列表">
+    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="导航菜单">
       <button
         type="button"
-        aria-label="关闭会话列表"
+        aria-label="关闭导航菜单"
         className="absolute inset-0 bg-black/30"
         onClick={onClose}
       />
       <div className="absolute inset-y-0 left-0 flex w-[min(82vw,300px)] max-w-full flex-col bg-[#171717] shadow-2xl">
         <div className="flex h-14 shrink-0 items-center justify-between px-4">
-          <span className="text-sm font-semibold text-white">会话</span>
+          <span className="text-sm font-semibold text-white">导航</span>
           <button
             type="button"
             onClick={onClose}
@@ -71,16 +71,23 @@ export function MobileSidebar({
             ×
           </button>
         </div>
-        <Sidebar
-          className="flex w-full"
-          threads={threads}
-          currentThreadId={currentThreadId}
-          onSelect={onSelect}
-          onNew={handleNew}
-          onAfterSelect={onClose}
-          enabledSkillsCount={enabledSkillsCount}
-          onOpenSkills={handleOpenSkills}
-        />
+        <div className="min-h-0 flex-1">
+          <Sidebar
+            className="flex h-full w-full pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+            threads={threads}
+            currentThreadId={currentThreadId}
+            activeSurface={activeSurface}
+            onSelect={onSelect}
+            onNew={onNew}
+            onAfterSelect={onClose}
+            enabledSkillsCount={enabledSkillsCount}
+            onOpenSkills={onOpenSkills}
+            onOpenKnowledge={onOpenKnowledge}
+            knowledgeCount={knowledgeCount}
+            user={user}
+            onLogout={onLogout}
+          />
+        </div>
       </div>
     </div>
   );

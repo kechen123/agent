@@ -42,6 +42,13 @@ function textOf(chunk: unknown): string {
   return typeof c?.content === "string" ? c.content : "";
 }
 
+function polishReplyText(text: string): string {
+  return text
+    .replace(/^(?:根据(?:查询结果|知识库信息|提供的信息|检索结果)[，,：:\s]*)+/u, "")
+    .replace(/\n(?:根据(?:查询结果|知识库信息|提供的信息|检索结果)[，,：:\s]*)/gu, "\n")
+    .trimStart();
+}
+
 /** 把不同来源的异常统一转换为可以安全发送给前端的文本。 */
 function errorMessageOf(value: unknown): string {
   if (value instanceof Error) return value.message;
@@ -196,7 +203,7 @@ export async function* adaptStream(
 
       if (kind === "on_chat_model_end" && node === "reply") {
         if (replied) {
-          yield { type: "message:end", content: messageBuffer };
+          yield { type: "message:end", content: polishReplyText(messageBuffer) };
           messageBuffer = "";
           replied = false;
         }
@@ -206,7 +213,7 @@ export async function* adaptStream(
 
     // 如果漏掉了模型结束事件，则补刷尾部消息。
     if (replied) {
-      yield { type: "message:end", content: messageBuffer };
+      yield { type: "message:end", content: polishReplyText(messageBuffer) };
       messageBuffer = "";
       replied = false;
     }

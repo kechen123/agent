@@ -33,6 +33,7 @@ async function responseError(res: Response): Promise<Error> {
 export function openAgentStream(
   url: string,
   body: unknown,
+  token: string | null,
   onEvent: (event: AgentStreamEvent) => void,
   onDone?: () => void,
   onError?: (err: Error) => void,
@@ -41,9 +42,15 @@ export function openAgentStream(
 
   (async () => {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      };
+      if (token) headers.Authorization = `Bearer ${token}`;
+
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });

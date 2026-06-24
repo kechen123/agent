@@ -86,6 +86,7 @@ export interface AgentMessageMetadata {
 export interface ChatRequest {
   threadId: string;
   message: string;
+  mode?: "auto" | "chat" | "rag";
 }
 
 export interface ResumeRequest {

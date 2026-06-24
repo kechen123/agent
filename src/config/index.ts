@@ -30,6 +30,15 @@ export const config = {
   maxToolCalls: nonNegativeInt("MAX_TOOL_CALLS", 8),
   enabledTools: list("ENABLED_TOOLS"),
   enabledSkills: list("ENABLED_SKILLS"),
+  databaseUrl: process.env.DATABASE_URL ?? "",
+  embeddingApiKey: process.env.EMBEDDING_API_KEY ?? process.env.DEEPSEEK_API_KEY ?? "",
+  embeddingBaseURL: process.env.EMBEDDING_BASE_URL ?? process.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com",
+  embeddingModel: process.env.EMBEDDING_MODEL ?? "text-embedding-v3",
+  embeddingDim: nonNegativeInt("EMBEDDING_DIM", 2048),
+  autoRagDistanceThreshold: num("AUTO_RAG_DISTANCE_THRESHOLD", 0.55),
+  uploadDir: process.env.UPLOAD_DIR ?? "uploads",
+  jwtSecret: process.env.JWT_SECRET ?? "",
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
 } as const;
 
 export type AppConfig = typeof config;

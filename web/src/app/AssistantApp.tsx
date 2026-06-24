@@ -1,14 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAgentRuntime } from "../hooks/useAgentRuntime";
+import { LoginView } from "../components/auth/LoginView";
 import { ChatView } from "../components/agent/ChatView";
 import { Sidebar } from "../components/layout/Sidebar";
 import { MobileSidebar } from "../components/layout/MobileSidebar";
+import { KnowledgePanel } from "../components/knowledge/KnowledgePanel";
 import { SkillsPanel } from "../components/skills/SkillsPanel";
+import { getMe, login } from "../services/authApi";
+import {
+  clearAuthSession,
+  getAuthSession,
+  setAuthSession,
+  type AuthSession,
+} from "../services/authStorage";
+import { listDocuments, type KnowledgeDocument } from "../services/knowledgeApi";
 import { fetchSkills } from "../services/skillsApi";
 import type { SkillSummary } from "../types/skills";
 import { AgentActionsContext, type AgentActions } from "./agentActions";
+import { useAgentRuntime } from "../hooks/useAgentRuntime";
+
+type ActiveSurface = "chat" | "knowledge";
 
 export function AssistantApp() {
+  const [session, setSession] = useState<AuthSession | null>(() => getAuthSession());
+  const [authLoading, setAuthLoading] = useState(() => Boolean(getAuthSession()));
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const {
     threads,
     currentThread,
@@ -19,17 +35,48 @@ export function AssistantApp() {
     resume,
     cancel,
     isRunning,
-  } = useAgentRuntime();
+  } = useAgentRuntime(session?.token ?? null);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [activeSurface, setActiveSurface] = useState<ActiveSurface>("chat");
   const [skills, setSkills] = useState<SkillSummary[]>([]);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [knowledgeCount, setKnowledgeCount] = useState<number | null>(null);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const initialSession = getAuthSession();
+    if (!initialSession) {
+      setAuthLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    void getMe(initialSession.token, controller.signal)
+      .then((user) => {
+        const next = { token: initialSession.token, user };
+        setAuthSession(next);
+        setSession(next);
+      })
+      .catch(() => {
+        clearAuthSession();
+        setSession(null);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAuthLoading(false);
+      });
+
+    return () => controller.abort();
+  }, []);
 
   const enabledSkillsCount = useMemo(
     () => skills.filter((skill) => skill.enabled).length,
     [skills],
   );
+
+  const updateKnowledgeCount = useCallback((documents: KnowledgeDocument[]) => {
+    setKnowledgeCount(documents.filter((document) => document.status === "ready").length);
+  }, []);
 
   const loadSkills = useCallback(async (signal?: AbortSignal) => {
     setSkillsLoading(true);
@@ -48,15 +95,44 @@ export function AssistantApp() {
   }, []);
 
   useEffect(() => {
+    if (!session) return;
     const controller = new AbortController();
     void loadSkills(controller.signal);
+    void listDocuments(session.token)
+      .then(updateKnowledgeCount)
+      .catch(() => setKnowledgeCount(null));
     return () => controller.abort();
-  }, [loadSkills]);
+  }, [loadSkills, session, updateKnowledgeCount]);
 
   const actions = useMemo<AgentActions>(
     () => ({ resume, isRunning }),
     [isRunning, resume],
   );
+
+  const handleLogin = useCallback(async (account: string, password: string) => {
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const next = await login(account.trim(), password);
+      setAuthSession(next);
+      setSession(next);
+    } catch (err) {
+      setLoginError((err as Error).message || "登录失败");
+    } finally {
+      setLoginLoading(false);
+    }
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    cancel();
+    clearAuthSession();
+    setSession(null);
+    setSkills([]);
+    setKnowledgeCount(null);
+    setSkillsOpen(false);
+    setActiveSurface("chat");
+    setMobileSidebarOpen(false);
+  }, [cancel]);
 
   const handleOpenSkills = useCallback(() => {
     setSkillsOpen(true);
@@ -65,13 +141,31 @@ export function AssistantApp() {
     }
   }, [loadSkills, skills.length, skillsError, skillsLoading]);
 
+  const handleOpenKnowledge = useCallback(() => {
+    setActiveSurface("knowledge");
+  }, []);
+
   const handleSelectThread = useCallback((threadId: string) => {
     setCurrentThreadId(threadId);
+    setActiveSurface("chat");
   }, [setCurrentThreadId]);
 
   const handleNewThread = useCallback(() => {
     newThread();
+    setActiveSurface("chat");
   }, [newThread]);
+
+  if (authLoading) {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center bg-neutral-950 text-sm text-neutral-300">
+        正在恢复登录状态…
+      </main>
+    );
+  }
+
+  if (!session) {
+    return <LoginView isLoading={loginLoading} error={loginError} onLogin={handleLogin} />;
+  }
 
   return (
     <AgentActionsContext.Provider value={actions}>
@@ -80,33 +174,51 @@ export function AssistantApp() {
           className="hidden md:flex"
           threads={threads}
           currentThreadId={currentThreadId}
+          activeSurface={activeSurface}
           onSelect={handleSelectThread}
           onNew={handleNewThread}
           enabledSkillsCount={enabledSkillsCount}
           onOpenSkills={handleOpenSkills}
+          onOpenKnowledge={handleOpenKnowledge}
+          knowledgeCount={knowledgeCount}
+          user={session.user}
+          onLogout={handleLogout}
         />
         <MobileSidebar
           open={mobileSidebarOpen}
           threads={threads}
           currentThreadId={currentThreadId}
+          activeSurface={activeSurface}
           onSelect={handleSelectThread}
           onNew={handleNewThread}
           onClose={() => setMobileSidebarOpen(false)}
           enabledSkillsCount={enabledSkillsCount}
           onOpenSkills={handleOpenSkills}
+          onOpenKnowledge={handleOpenKnowledge}
+          knowledgeCount={knowledgeCount}
+          user={session.user}
+          onLogout={handleLogout}
         />
         <main className="min-w-0 flex-1">
-          <ChatView
-            title={currentThread.title || "新会话"}
-            messages={currentThread.messages}
-            isRunning={isRunning}
-            onOpenMenu={() => setMobileSidebarOpen(true)}
-            onNewThread={handleNewThread}
-            onSend={sendMessage}
-            onCancel={cancel}
-            enabledSkillsCount={enabledSkillsCount}
-            onOpenSkills={handleOpenSkills}
-          />
+          {activeSurface === "knowledge" ? (
+            <KnowledgePanel
+              token={session.token}
+              onOpenMenu={() => setMobileSidebarOpen(true)}
+              onDocumentsChange={updateKnowledgeCount}
+            />
+          ) : (
+            <ChatView
+              title={currentThread.title || "新会话"}
+              messages={currentThread.messages}
+              isRunning={isRunning}
+              onOpenMenu={() => setMobileSidebarOpen(true)}
+              onNewThread={handleNewThread}
+              onSend={sendMessage}
+              onCancel={cancel}
+              enabledSkillsCount={enabledSkillsCount}
+              onOpenSkills={handleOpenSkills}
+            />
+          )}
         </main>
         <SkillsPanel
           open={skillsOpen}

@@ -27,6 +27,10 @@ export const AgentState = Annotation.Root({
     reducer: (_oldValue, newValue) => newValue,
     default: () => "",
   }),
+  ragMode: Annotation<boolean>({
+    reducer: (_oldValue, newValue) => newValue,
+    default: () => false,
+  }),
   route: Annotation<Route | "">({
     reducer: (_oldValue, newValue) => newValue,
     default: () => "",
