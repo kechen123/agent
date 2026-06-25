@@ -22,6 +22,16 @@ export async function getClient(): Promise<PoolClient> {
   return pool.connect();
 }
 
+/**
+ * 数据库就绪检查。
+ *
+ * 这里只执行 SELECT 1，避免 readiness 接口对数据库造成额外压力。
+ * 如果 DATABASE_URL 缺失或数据库不可连接，调用方会把它转换成 /ready 的失败项。
+ */
+export async function checkDbReady(): Promise<void> {
+  await query("SELECT 1");
+}
+
 export async function closeDb(): Promise<void> {
   await pool.end();
 }
