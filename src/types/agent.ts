@@ -147,12 +147,18 @@ export type AgentStreamEvent =
   | { type: "tool:start"; callId: string; toolName: string; input: unknown }
   | { type: "tool:end"; callId: string; toolName: string; output: unknown }
   | { type: "tool:error"; callId: string; toolName: string; error: string }
+  | { type: "run:start"; requestId: string; runId: string; threadId: string }
   | { type: "message:delta"; content: string }
   | { type: "message:end"; content: string }
   | { type: "hitl:waiting"; plan: Plan }
   | { type: "hitl:done"; action: HitlAction }
-  | { type: "error"; message: string }
-  | { type: "stream:end"; status: "completed" | "waiting" | "error" | "cancelled" };
+  | { type: "error"; message: string; code?: ErrorCode; requestId?: string; runId?: string }
+  | {
+      type: "stream:end";
+      status: "completed" | "waiting" | "error" | "cancelled";
+      runId?: string;
+      durationMs?: number;
+    };
 
 export type ReflectionStatus = "pass" | "retry" | "replan" | "fail";
 

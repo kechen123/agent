@@ -117,6 +117,16 @@ export function useAgentRuntime(token: string | null) {
         let content = message.content;
 
         switch (event.type) {
+          case "run:start":
+            meta.events.push({
+              id: nextEventId(),
+              type: event.type,
+              title: "运行已开始",
+              description: `runId=${event.runId}`,
+              data: event,
+              status: "done",
+            });
+            break;
           case "router:start":
             meta.events.push({
               id: nextEventId(),
@@ -258,8 +268,9 @@ export function useAgentRuntime(token: string | null) {
             meta.events.push({
               id: nextEventId(),
               type: "error",
-              title: "运行失败",
+              title: event.code ? `运行失败：${event.code}` : "运行失败",
               description: event.message,
+              data: event,
               status: "error",
             });
             break;
@@ -272,6 +283,16 @@ export function useAgentRuntime(token: string | null) {
                 type: event.type,
                 title: "已停止生成",
                 status: "done",
+              });
+            }
+            if (event.durationMs !== undefined && event.status !== "cancelled") {
+              meta.events.push({
+                id: nextEventId(),
+                type: event.type,
+                title: "运行结束",
+                description: `状态：${event.status}，耗时：${event.durationMs}ms`,
+                data: event,
+                status: event.status === "error" ? "error" : "done",
               });
             }
             break;
