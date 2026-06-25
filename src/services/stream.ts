@@ -1,5 +1,9 @@
 import { getSnapshot, isWaitingForConfirm, getInterruptPlan } from "../runtime/checkpoints";
 import { NODE_NAMES } from "../runtime/events";
+import { logger } from "../observability/logger";
+import { getRequestContext } from "../observability/request-context";
+import { durationSince, nowMs } from "../observability/timing";
+import { toLogError, toSseError } from "../observability/errors";
 import type {
   AgentStreamEvent,
   Plan,
@@ -108,12 +112,16 @@ function errorMessageOf(value: unknown): string {
 export async function* adaptStream(
   raw: AsyncIterable<RawStreamEvent>,
   threadId: string,
+  options: { runId?: string; startedAt?: number } = {},
 ): AsyncGenerator<AgentStreamEvent> {
   let messageBuffer = "";
   let currentPlan: Plan | null = null;
   let replied = false;
   let replyContentEmitted = false;
   let finalStatus: "completed" | "waiting" = "completed";
+  const streamStartedAt = options.startedAt ?? nowMs();
+  const nodeStarts = new Map<string, number>();
+  const toolStarts = new Map<string, number>();
 
   // 从 checkpoint 中预填计划，这样 resume 流（planner:end 不会重新触发）
   // 仍然可以解析 executor:end 对应的步骤。
@@ -132,6 +140,8 @@ export async function* adaptStream(
 
       // ── 节点生命周期 ────────────────────────────────────────────────
       if (kind === "on_chain_start" && node && e.name === e.metadata?.langgraph_node) {
+        nodeStarts.set(node, nowMs());
+        logger.info("agent.node.start", { node, langgraphNode: e.metadata?.langgraph_node });
         if (node === "router") yield { type: "router:start", agent: NODE_NAMES.router };
         else if (node === "planner") yield { type: "planner:start", agent: NODE_NAMES.planner };
         else if (node === "executor") {
@@ -156,6 +166,8 @@ export async function* adaptStream(
 
       if (kind === "on_chain_end" && node && e.name === e.metadata?.langgraph_node) {
         const out = asOutput(e);
+        const durationMs = nodeStarts.has(node) ? durationSince(nodeStarts.get(node)!) : undefined;
+        logger.info("agent.node.end", { node, durationMs });
         if (node === "router") {
           const route = (out?.route as Route) ?? "chat";
           const skillName = typeof out?.skillName === "string" ? out.skillName : null;
@@ -202,29 +214,53 @@ export async function* adaptStream(
         continue;
       }
 
+      if (kind === "on_chain_error" && node) {
+        const durationMs = nodeStarts.has(node) ? durationSince(nodeStarts.get(node)!) : undefined;
+        logger.error("agent.node.error", {
+          node,
+          durationMs,
+          error: toLogError((e.data as { error?: unknown } | undefined)?.error),
+        });
+        continue;
+      }
+
       // ── 工具生命周期 ────────────────────────────────────────────────
       if (kind === "on_tool_start") {
+        const callId = e.run_id ?? e.name;
+        toolStarts.set(callId, nowMs());
+        logger.info("agent.tool.start", { callId, toolName: e.name });
         yield {
           type: "tool:start",
-          callId: e.run_id ?? e.name,
+          callId,
           toolName: e.name,
           input: (e.data as { input?: unknown } | undefined)?.input,
         };
         continue;
       }
       if (kind === "on_tool_end") {
+        const callId = e.run_id ?? e.name;
+        const durationMs = toolStarts.has(callId) ? durationSince(toolStarts.get(callId)!) : undefined;
+        logger.info("agent.tool.end", { callId, toolName: e.name, durationMs });
         yield {
           type: "tool:end",
-          callId: e.run_id ?? e.name,
+          callId,
           toolName: e.name,
           output: (e.data as { output?: unknown } | undefined)?.output,
         };
         continue;
       }
       if (kind === "on_tool_error") {
+        const callId = e.run_id ?? e.name;
+        const durationMs = toolStarts.has(callId) ? durationSince(toolStarts.get(callId)!) : undefined;
+        logger.error("agent.tool.error", {
+          callId,
+          toolName: e.name,
+          durationMs,
+          error: toLogError((e.data as { error?: unknown } | undefined)?.error),
+        });
         yield {
           type: "tool:error",
-          callId: e.run_id ?? e.name,
+          callId,
           toolName: e.name,
           error: errorMessageOf((e.data as { error?: unknown } | undefined)?.error),
         };
@@ -271,14 +307,19 @@ export async function* adaptStream(
         yield { type: "hitl:waiting", plan };
       }
     }
-    yield { type: "stream:end", status: finalStatus };
+    const durationMs = durationSince(streamStartedAt);
+    logger.info("agent.stream.end", { status: finalStatus, durationMs });
+    yield { type: "stream:end", status: finalStatus, runId: options.runId ?? getRequestContext()?.runId, durationMs };
   } catch (err) {
+    const durationMs = durationSince(streamStartedAt);
     if (err instanceof Error && err.name === "AbortError") {
-      yield { type: "stream:end", status: "cancelled" };
+      logger.warn("agent.stream.cancelled", { durationMs });
+      yield { type: "stream:end", status: "cancelled", runId: options.runId ?? getRequestContext()?.runId, durationMs };
       return;
     }
-    yield { type: "error", message: errorMessageOf(err) };
-    yield { type: "stream:end", status: "error" };
+    logger.error("agent.stream.error", { durationMs, error: toLogError(err) });
+    yield { type: "error", ...toSseError(err), message: errorMessageOf(err) };
+    yield { type: "stream:end", status: "error", runId: options.runId ?? getRequestContext()?.runId, durationMs };
   }
 }
 
@@ -290,7 +331,8 @@ export async function* adaptResumeStream(
   raw: AsyncIterable<RawStreamEvent>,
   threadId: string,
   action: "confirm" | "reject" | "modify",
+  options: { runId?: string; startedAt?: number } = {},
 ): AsyncGenerator<AgentStreamEvent> {
   yield { type: "hitl:done", action };
-  yield* adaptStream(raw, threadId);
+  yield* adaptStream(raw, threadId, options);
 }
