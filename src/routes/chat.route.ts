@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { BaseMessage } from "@langchain/core/messages";
@@ -20,6 +21,11 @@ import { config } from "../config";
 import { model } from "../services/llm";
 import { messageText } from "../runtime/messages";
 import type { AgentStateValue, RagStrategy } from "../types/agent";
+import { createRequestId, createRunId } from "../observability/ids";
+import { AppError, statusOfError, toLogError, toPublicError } from "../observability/errors";
+import { logger } from "../observability/logger";
+import { patchRequestContext, runWithRequestContext } from "../observability/request-context";
+import { durationSince, nowMs } from "../observability/timing";
 
 const ChatSchema = z.object({
   threadId: z.string().trim().min(1).max(128).regex(/^[a-zA-Z0-9_-]+$/),
@@ -58,6 +64,22 @@ const ResumeSchema = z
   });
 
 export const chatRoute = new Hono<{ Variables: AuthVariables }>();
+
+type ChatRouteContext = Context<{ Variables: AuthVariables }>;
+
+/**
+ * 统一输出 HTTP JSON 错误。
+ *
+ * 这里把“内部异常对象”转换成“对外安全错误”：
+ * - 日志里记录 code、message、stack 等内部排查信息；
+ * - HTTP 响应里只返回安全 message 和 requestId；
+ * - 调用方可以通过 requestId 回到日志里定位完整链路。
+ */
+function jsonError(c: ChatRouteContext, err: unknown) {
+  const status = statusOfError(err) as ContentfulStatusCode;
+  logger.warn("http.request.error", { status, error: toLogError(err) });
+  return c.json({ ok: false, error: toPublicError(err) }, status);
+}
 
 const AutoRagDecisionSchema = z.object({
   strategy: z
@@ -157,7 +179,7 @@ async function decideAutoRagStrategy(
       recentDialogue: recentDialogue || "无",
     });
   } catch (err) {
-    console.warn("[AutoRAG] strategy decision failed", err);
+    logger.warn("auto_rag.strategy_decision_failed", { error: toLogError(err) });
     return { strategy: "search", reason: "判断失败，保守重新检索" };
   }
 }
@@ -197,7 +219,7 @@ async function normalizeChatInput(
       previousKnowledgeContext,
       recentDialogueOf(previousMessages),
     );
-    console.log("[AutoRAG]", decision);
+    logger.info("auto_rag.strategy_decision", { strategy: decision.strategy, reason: decision.reason });
     if (decision.strategy === "reuse") {
       return {
         ok: true,
@@ -226,7 +248,7 @@ async function normalizeChatInput(
       ragContext: "",
     };
   } catch (err) {
-    console.warn("[AutoRAG] skip knowledge lookup", err);
+    logger.warn("auto_rag.initial_lookup_skipped", { error: toLogError(err) });
     return { ok: true, message: trimmed, ragMode: false, ragStrategy: "search", ragContext: "" };
   }
 }
@@ -234,62 +256,94 @@ async function normalizeChatInput(
 /**
  * POST /chat：开始一轮新对话。
  *
- * 同一 threadId 必须串行执行，否则两个图运行会并发写入同一个 checkpoint。
- * 因此先获取线程锁，再检查 checkpoint 是否正在等待 HITL。
+ * 可观测性运转流程：
+ * 1. 为 HTTP 请求创建 requestId，并放入 AsyncLocalStorage；
+ * 2. 认证后补充 userId/threadId，后续日志会自动带上这些字段；
+ * 3. 获取同线程运行锁，避免多个图运行并发写同一个 checkpoint；
+ * 4. 根据 mode、/rag 命令和历史知识库上下文决定本轮 RAG 策略；
+ * 5. 创建 runId，发送 run:start，再把 LangGraph streamEvents 转为标准 SSE；
+ * 6. finally 中记录运行耗时并释放线程锁。
  */
 chatRoute.post("/chat", authMiddleware, async (c) => {
-  const parsed = ChatSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return c.json({ ok: false, error: parsed.error.flatten() }, 400);
-  }
-  const { threadId, message, mode } = parsed.data;
+  const requestId = c.req.header("X-Request-Id") || createRequestId();
+  c.header("X-Request-Id", requestId);
 
-  const user = c.get("user");
-  try {
-    bindThreadUser(threadId, user.id);
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    return c.json({ ok: false, error }, 403);
-  }
+  return runWithRequestContext({ requestId }, async () => {
+    const requestStartedAt = nowMs();
+    logger.info("http.request.start", { method: "POST", path: "/chat" });
 
-  const release = acquireThreadRun(threadId);
-  if (!release) {
-    return c.json({ ok: false, error: "当前线程已有任务正在运行" }, 409);
-  }
-
-  let snapshotValues: unknown;
-  try {
-    const snapshot = await getSnapshot(threadId);
-    if (isWaitingForConfirm(snapshot)) {
-      release();
-      return c.json({ ok: false, error: "当前线程正在等待确认，请调用 /chat/resume" }, 409);
+    const parsed = ChatSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return jsonError(c, new AppError("VALIDATION_ERROR", "请求参数不合法", { status: 400 }));
     }
-    snapshotValues = snapshot.values;
-  } catch (err) {
-    release();
-    const message = err instanceof Error ? err.message : String(err);
-    return c.json({ ok: false, error: `读取线程状态失败：${message}` }, 500);
-  }
+    const { threadId, message, mode } = parsed.data;
 
-  const normalized = await normalizeChatInput(message, mode, user.id, snapshotValues);
-  if (!normalized.ok) {
-    release();
-    return c.json({ ok: false, error: normalized.error }, 400);
-  }
-
-  return streamSSE(c, async (stream) => {
+    const user = c.get("user");
+    patchRequestContext({ userId: user.id, threadId });
     try {
-      const raw = startChatStream(threadId, normalized.message, c.req.raw.signal, {
-        ragMode: normalized.ragMode,
-        ragStrategy: normalized.ragStrategy,
-        ragContext: normalized.ragContext,
-      });
-      for await (const event of adaptStream(raw, threadId)) {
-        await stream.writeSSE({ data: JSON.stringify(event) });
-      }
-    } finally {
-      release();
+      bindThreadUser(threadId, user.id);
+    } catch (err) {
+      return jsonError(c, new AppError("AUTH_FORBIDDEN", err instanceof Error ? err.message : String(err), { status: 403 }));
     }
+
+    const release = acquireThreadRun(threadId);
+    if (!release) {
+      return jsonError(c, new AppError("THREAD_BUSY", "当前线程已有任务正在运行", { status: 409 }));
+    }
+
+    let snapshotValues: unknown;
+    try {
+      const snapshot = await getSnapshot(threadId);
+      if (isWaitingForConfirm(snapshot)) {
+        release();
+        return jsonError(c, new AppError("THREAD_WAITING_CONFIRMATION", "当前线程正在等待确认，请调用 /chat/resume", { status: 409 }));
+      }
+      snapshotValues = snapshot.values;
+    } catch (err) {
+      release();
+      const message = err instanceof Error ? err.message : String(err);
+      return jsonError(c, new AppError("INTERNAL_ERROR", `读取线程状态失败：${message}`, { status: 500, expose: true }));
+    }
+
+    const normalized = await normalizeChatInput(message, mode, user.id, snapshotValues);
+    if (!normalized.ok) {
+      release();
+      return jsonError(c, new AppError("VALIDATION_ERROR", normalized.error, { status: 400 }));
+    }
+
+    const runId = createRunId();
+    patchRequestContext({ runId });
+    c.header("X-Agent-Run-Id", runId);
+    logger.info("agent.run.start", {
+      kind: "chat",
+      mode,
+      ragMode: normalized.ragMode,
+      ragStrategy: normalized.ragStrategy,
+      messageLength: normalized.message.length,
+    });
+
+    return streamSSE(c, async (stream) => {
+      const runStartedAt = nowMs();
+      let terminalStatus: "completed" | "waiting" | "error" | "cancelled" = "completed";
+      await runWithRequestContext({ requestId, userId: user.id, threadId, runId }, async () => {
+        try {
+          await stream.writeSSE({ data: JSON.stringify({ type: "run:start", requestId, runId, threadId }) });
+          const raw = startChatStream(threadId, normalized.message, c.req.raw.signal, {
+            ragMode: normalized.ragMode,
+            ragStrategy: normalized.ragStrategy,
+            ragContext: normalized.ragContext,
+          });
+          for await (const event of adaptStream(raw, threadId, { runId, startedAt: runStartedAt })) {
+            if (event.type === "stream:end") terminalStatus = event.status;
+            await stream.writeSSE({ data: JSON.stringify(event) });
+          }
+        } finally {
+          logger.info("agent.run.end", { kind: "chat", status: terminalStatus, durationMs: durationSince(runStartedAt) });
+          logger.info("http.request.end", { method: "POST", path: "/chat", status: 200, durationMs: durationSince(requestStartedAt) });
+          release();
+        }
+      });
+    });
   });
 });
 
@@ -300,49 +354,70 @@ chatRoute.post("/chat", authMiddleware, async (c) => {
  * 图会从暂停节点继续，而不是新建一轮对话。
  */
 chatRoute.post("/chat/resume", authMiddleware, async (c) => {
-  const parsed = ResumeSchema.safeParse(await c.req.json().catch(() => null));
-  if (!parsed.success) {
-    return c.json({ ok: false, error: parsed.error.flatten() }, 400);
-  }
-  const { threadId, action, message, plan } = parsed.data;
-  const user = c.get("user");
-  try {
-    assertThreadUser(threadId, user.id);
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    return c.json({ ok: false, error }, 403);
-  }
+  const requestId = c.req.header("X-Request-Id") || createRequestId();
+  c.header("X-Request-Id", requestId);
 
-  const release = acquireThreadRun(threadId);
-  if (!release) {
-    return c.json({ ok: false, error: "当前线程已有任务正在运行" }, 409);
-  }
+  return runWithRequestContext({ requestId }, async () => {
+    const requestStartedAt = nowMs();
+    logger.info("http.request.start", { method: "POST", path: "/chat/resume" });
 
-  try {
-    const snapshot = await getSnapshot(threadId);
-    if (!isWaitingForConfirm(snapshot)) {
-      release();
-      return c.json({ ok: false, error: "当前线程没有等待中的确认任务" }, 409);
+    const parsed = ResumeSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return jsonError(c, new AppError("VALIDATION_ERROR", "请求参数不合法", { status: 400 }));
     }
-  } catch (err) {
-    release();
-    const error = err instanceof Error ? err.message : String(err);
-    return c.json({ ok: false, error: `读取线程状态失败：${error}` }, 500);
-  }
-
-  const decision: HitlDecision =
-    action === "modify"
-      ? { action: "modify", message, plan }
-      : { action };
-
-  return streamSSE(c, async (stream) => {
+    const { threadId, action, message, plan } = parsed.data;
+    const user = c.get("user");
+    patchRequestContext({ userId: user.id, threadId });
     try {
-      const raw = resumeStream(threadId, decision, c.req.raw.signal);
-      for await (const event of adaptResumeStream(raw, threadId, action)) {
-        await stream.writeSSE({ data: JSON.stringify(event) });
-      }
-    } finally {
-      release();
+      assertThreadUser(threadId, user.id);
+    } catch (err) {
+      return jsonError(c, new AppError("AUTH_FORBIDDEN", err instanceof Error ? err.message : String(err), { status: 403 }));
     }
+
+    const release = acquireThreadRun(threadId);
+    if (!release) {
+      return jsonError(c, new AppError("THREAD_BUSY", "当前线程已有任务正在运行", { status: 409 }));
+    }
+
+    try {
+      const snapshot = await getSnapshot(threadId);
+      if (!isWaitingForConfirm(snapshot)) {
+        release();
+        return jsonError(c, new AppError("THREAD_WAITING_CONFIRMATION", "当前线程没有等待中的确认任务", { status: 409 }));
+      }
+    } catch (err) {
+      release();
+      const error = err instanceof Error ? err.message : String(err);
+      return jsonError(c, new AppError("INTERNAL_ERROR", `读取线程状态失败：${error}`, { status: 500, expose: true }));
+    }
+
+    const decision: HitlDecision =
+      action === "modify"
+        ? { action: "modify", message, plan }
+        : { action };
+
+    const runId = createRunId();
+    patchRequestContext({ runId });
+    c.header("X-Agent-Run-Id", runId);
+    logger.info("agent.run.start", { kind: "resume", action });
+
+    return streamSSE(c, async (stream) => {
+      const runStartedAt = nowMs();
+      let terminalStatus: "completed" | "waiting" | "error" | "cancelled" = "completed";
+      await runWithRequestContext({ requestId, userId: user.id, threadId, runId }, async () => {
+        try {
+          await stream.writeSSE({ data: JSON.stringify({ type: "run:start", requestId, runId, threadId }) });
+          const raw = resumeStream(threadId, decision, c.req.raw.signal);
+          for await (const event of adaptResumeStream(raw, threadId, action, { runId, startedAt: runStartedAt })) {
+            if (event.type === "stream:end") terminalStatus = event.status;
+            await stream.writeSSE({ data: JSON.stringify(event) });
+          }
+        } finally {
+          logger.info("agent.run.end", { kind: "resume", action, status: terminalStatus, durationMs: durationSince(runStartedAt) });
+          logger.info("http.request.end", { method: "POST", path: "/chat/resume", status: 200, durationMs: durationSince(requestStartedAt) });
+          release();
+        }
+      });
+    });
   });
 });
