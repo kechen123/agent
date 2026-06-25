@@ -157,6 +157,15 @@ Router 只读取 `name` 和 `description`。命中 Skill 后，正文会注入 P
 2. 从 `src/agents/index.ts` 导出。
 3. 在 `src/runtime/graph.ts` 中接入节点和边。
 
+## 后端可观测性约定
+
+- 修改 `/chat`、`/chat/resume`、Agent Runtime、Tool、RAG 或 SSE 流程时，应保持 `requestId` / `runId` 可追踪。
+- 新增后端运行链路时，优先使用 `src/observability/logger.ts` 输出结构化日志，不要散落 `console.log`。
+- 日志只能记录安全摘要，不能记录 JWT、API Key、数据库连接串、用户文档全文或完整工具输出。
+- 新增面向前端的 SSE 事件时，必须同步更新 `src/types/agent.ts` 与 `web/src/types/agent-ui.ts`。
+- 后端关键流程代码需要写中文注释，尤其是 Agent 运转、SSE 转换、请求上下文、错误处理和 Tool 调用边界。
+- 改动运行流程后，应同步更新 README 或相关设计/计划文档中的运转流程说明，方便学习和复盘。
+
 ## 当前 assistant-ui 状态
 
 `@assistant-ui/react` 仍保留在 `web/package.json` 中，但当前安装版本 `0.7.x` 的 `Thread` 自定义消息 API 与原代码不兼容。前端当前使用自研 Chat UI 渲染消息、执行过程、计划、工具调用和 HITL 操作；后续替换回 assistant-ui 标准 Runtime 时，应先读取实际安装版本的类型定义再改代码。

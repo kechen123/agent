@@ -104,7 +104,8 @@ http://localhost:3000
 
 可用接口：
 
-- `GET /health`：健康检查，返回 `{ "ok": true, "service": "agent-runtime" }`。
+- `GET /health`：存活检查，返回 `{ "ok": true, "service": "agent-runtime", "requestId": "..." }`。
+- `GET /ready`：就绪检查，返回配置、数据库、LLM/Embedding 配置状态；失败时返回 `503`。
 - `POST /api/auth/register`：注册账号，返回 `{ token, user }`。
 - `POST /api/auth/login`：登录（支持邮箱或用户名），返回 `{ token, user }`。
 - `GET /api/auth/me`：携带 Bearer Token，返回当前用户。
@@ -138,7 +139,7 @@ http://localhost:5173
 Vite 代理（目标默认 `http://localhost:3210`，可通过 `web/.env` 的 `VITE_API_PROXY_TARGET` 覆盖，例如改为 `http://localhost:3000`）：
 
 - `/chat`、`/chat/resume` → 后端
-- `/health` → 后端
+- `/health`、`/ready` → 后端
 - `/skills` → 后端
 - `/api` → 后端（覆盖 auth 与 knowledge 接口）
 
@@ -172,9 +173,50 @@ routerAgent --route-->  chat    → replyAgent → END
 - HITL 使用 LangGraph `interrupt()` 暂停，并通过 `Command({ resume })` 继续执行。
 - `tools` 节点在调用时懒加载当前注册表中的工具，而不是在图编译时固定工具列表。
 
-### Agent Loop
+### 后端可观测性
 
-计划任务的主循环是：
+后端为每个 HTTP 请求生成 `requestId`，并为每次 `/chat` / `/chat/resume` 流式 Agent 运行生成 `runId`。
+
+- `requestId`：HTTP 请求级追踪标识，会出现在 `X-Request-Id` 响应头、错误响应和结构化日志中。
+- `runId`：Agent/SSE 运行级追踪标识，会出现在 `X-Agent-Run-Id` 响应头、`run:start` / `stream:end` SSE 事件和结构化日志中。
+
+结构化日志以 JSON line 输出，常见事件包括：
+
+- `http.request.start` / `http.request.end` / `http.request.error`
+- `agent.run.start` / `agent.run.end`
+- `agent.node.start` / `agent.node.end` / `agent.node.error`
+- `agent.tool.start` / `agent.tool.end` / `agent.tool.error`
+- `ready.check.start` / `ready.check.end`
+
+日志默认不记录 JWT、API Key、数据库连接串、用户文档全文、完整工具输出或完整模型回复。
+
+#### `/chat` 运转流程
+
+```text
+POST /chat
+  → 生成/读取 requestId
+  → 认证得到 userId
+  → 绑定 threadId 与 userId
+  → 获取同线程运行锁
+  → 读取 LangGraph checkpoint
+  → normalizeChatInput 判断 RAG 策略
+  → 创建 runId
+  → 写 agent.run.start 日志
+  → streamSSE
+      → 发送 run:start
+      → startChatStream
+      → LangGraph streamEvents
+      → adaptStream 转为 AgentStreamEvent
+          → 记录 node/tool start/end/error
+          → 计算 durationMs
+          → 输出 SSE
+      → 发送 stream:end
+  → 写 agent.run.end 日志
+  → 释放同线程运行锁
+```
+
+
+### Agent Loop
 
 ```text
 Planner → HITL → Executor → Reflection
