@@ -5,6 +5,18 @@ import type { BaseMessage } from "@langchain/core/messages";
 
 export type Route = "chat" | "tool" | "plan" | "execute";
 export type RagStrategy = "search" | "reuse";
+export type ErrorCode =
+  | "VALIDATION_ERROR"
+  | "AUTH_REQUIRED"
+  | "AUTH_FORBIDDEN"
+  | "THREAD_BUSY"
+  | "THREAD_WAITING_CONFIRMATION"
+  | "CONFIG_ERROR"
+  | "DATABASE_ERROR"
+  | "LLM_ERROR"
+  | "TOOL_ERROR"
+  | "STREAM_CANCELLED"
+  | "INTERNAL_ERROR";
 
 // ─── 计划 ────────────────────────────────────────────────────────────────────
 
