@@ -9,6 +9,7 @@
     "db:init": "tsx scripts/init-db.ts",
     "verify:agent-loop": "tsx scripts/verify-agent-loop.ts",
     "verify:skills": "tsx scripts/verify-skills.ts",
+    "english:demo": "tsx scripts/english-demo.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

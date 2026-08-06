@@ -4,6 +4,8 @@ import type { UiMessage } from "../../hooks/useAgentRuntime";
 import { useAgentActions } from "../../app/agentActions";
 import { AgentWorkDetails } from "./AgentWorkDetails";
 import { HitlConfirmCard } from "./HitlConfirmCard";
+import { EnglishTutorCard } from "./EnglishTutorCard";
+import { parseEnglishTutorContent } from "../../services/englishJsonParse";
 
 interface AssistantMessageProps {
   message: UiMessage;
@@ -18,11 +20,19 @@ export function AssistantMessage({ message }: AssistantMessageProps) {
   const completedWithoutContent =
     meta.streamStatus === "completed" && !message.content;
 
+  // 英语 skill 命中 + 内容能解析为 EnglishTutorResponse → 渲染结构化卡片
+  const englishTutorData =
+    meta.skillName === "english" && message.content
+      ? parseEnglishTutorContent(message.content)
+      : null;
+
   return (
     <div className="flex w-full justify-start">
       <article className="min-w-0 flex-1 text-[15px] leading-7 text-neutral-800">
         <AgentWorkDetails metadata={meta} />
-        {message.content ? (
+        {englishTutorData ? (
+          <EnglishTutorCard data={englishTutorData} />
+        ) : message.content ? (
           <div className="markdown-body text-[15px] text-neutral-800">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
           </div>
